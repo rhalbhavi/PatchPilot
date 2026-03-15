@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Upload, Link as LinkIcon, Clock } from "lucide-react";
+import { Upload, Link as LinkIcon, Clock, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { scanRepoUrl, scanZip } from "../lib/api";
 import { saveLastScan } from "../lib/scan-store";
@@ -34,8 +34,10 @@ type UiJob = {
   findingsCount: number;
 };
 
+const RECENTS_KEY = "patchpilot:recentJobs";
+
 function getLocalRecentJobs(): UiJob[] {
-  const raw = localStorage.getItem("patchpilot:recentJobs");
+  const raw = localStorage.getItem(RECENTS_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as UiJob[];
@@ -48,7 +50,11 @@ function getLocalRecentJobs(): UiJob[] {
 function saveLocalRecentJob(job: UiJob) {
   const jobs = getLocalRecentJobs();
   const next = [job, ...jobs.filter((j) => j.id !== job.id)].slice(0, 10);
-  localStorage.setItem("patchpilot:recentJobs", JSON.stringify(next));
+  localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+}
+
+function clearLocalRecentJobs() {
+  localStorage.removeItem(RECENTS_KEY);
 }
 
 export function Dashboard() {
@@ -133,8 +139,10 @@ export function Dashboard() {
     try {
       const scan = await scanRepoUrl(url, repoRef || "main", "project");
       handleScanSuccess(scan);
+
       setUrlDialogOpen(false);
       setRepoUrl("");
+      setRepoRef("main");
     } catch (e: any) {
       setScanError(e?.message ?? "Import from URL failed");
     } finally {
@@ -167,6 +175,11 @@ export function Dashboard() {
     await handleZipFile(file);
   };
 
+  const onClearRecents = () => {
+    clearLocalRecentJobs();
+    setRecentJobs([]);
+  };
+
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-7xl pb-20 md:pb-8">
       <div className="mb-8">
@@ -193,7 +206,7 @@ export function Dashboard() {
               const file = e.target.files?.[0];
               if (!file) return;
               await handleZipFile(file);
-              e.currentTarget.value = "";
+              if (e.currentTarget) e.currentTarget.value = "";
             }}
           />
 
@@ -336,10 +349,22 @@ export function Dashboard() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Recent Scans</CardTitle>
-          <CardDescription>Your latest vulnerability scan jobs</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Recent Scans</CardTitle>
+            <CardDescription>
+              Your latest vulnerability scan jobs
+            </CardDescription>
+          </div>
+
+          {recentJobs.length > 0 && (
+            <Button variant="outline" size="sm" onClick={onClearRecents}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Clear
+            </Button>
+          )}
         </CardHeader>
+
         <CardContent>
           {recentJobs.length === 0 ? (
             <div className="text-sm text-muted-foreground">

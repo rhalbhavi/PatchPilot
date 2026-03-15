@@ -3,39 +3,47 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import List
+
 from ..models import Finding
 from ..utils.exec import run_cmd
 
 
 def run_osv_scanner(repo_dir: Path) -> List[Finding]:
-    cmd = ["osv-scanner", "scan", "--format", "json", "--recursive", "."]
-    r = run_cmd(cmd, cwd=repo_dir, timeout_s=600)
+    """
+    Runs osv-scanner in repo_dir and returns ONLY real vulnerability findings.
 
-    if not r.get("stdout"):
-        if r.get("stderr"):
-            return [Finding(
-                id="osv:error",
-                category="dependency",
-                severity="INFO",
-                title="OSV-Scanner failed to run",
-                description=r["stderr"][:5000],
-                metadata={"cmd": cmd, "returncode": r.get("returncode")},
-            )]
+    Important behavior change (fix):
+    - If osv-scanner fails to run, or outputs invalid JSON, we DO NOT create a fake
+      "OSV-Scanner failed to run" Finding (which was polluting the Findings UI).
+    - Instead we fail silently by returning [].
+
+    If you want to surface scanner failures in the UI, the better approach is:
+    - Add an "error" field to the /scan response `scanners.osv` object (ok=false, error="...").
+    """
+    cmd = ["osv-scanner", "scan", "--format", "json", "--recursive", "."]
+
+    r = run_cmd(cmd, cwd=repo_dir, timeout_s=600)
+    print("OSV cmd:", cmd)
+    print("OSV cwd:", str(repo_dir))
+    print("OSV returncode:", r.get("returncode"))
+    print("OSV stdout head:", (r.get("stdout") or "")[:200])
+    print("OSV stderr head:", (r.get("stderr") or "")[:500])
+
+    stdout = r.get("stdout") or ""
+    stderr = r.get("stderr") or ""
+    returncode = r.get("returncode")
+
+
+    if not stdout.strip():
         return []
 
     try:
-        data = json.loads(r["stdout"])
+        data = json.loads(stdout)
     except Exception:
-        return [Finding(
-            id="osv:error",
-            category="dependency",
-            severity="INFO",
-            title="OSV-Scanner output was not valid JSON",
-            description=(r.get("stdout", "")[:2000] + "\n" + r.get("stderr", "")[:2000])[:5000],
-            metadata={"cmd": cmd, "returncode": r.get("returncode")},
-        )]
+        return []
 
     out: List[Finding] = []
+
     results = data.get("results", []) or []
     for res in results:
         packages = res.get("packages", []) or []
@@ -43,21 +51,27 @@ def run_osv_scanner(repo_dir: Path) -> List[Finding]:
             vulns = pkg.get("vulnerabilities", []) or []
             for v in vulns:
                 vuln_id = v.get("id", "OSV-UNKNOWN")
-                out.append(Finding(
-                    id=f"osv:{vuln_id}:{(pkg.get('package', {}) or {}).get('name','pkg')}",
-                    category="dependency",
-                    severity="HIGH",
-                    title=f"Dependency vulnerability {vuln_id}",
-                    description=(v.get("summary") or v.get("details") or "")[:1000],
-                    location=None,
-                    metadata={
-                        "osv_id": vuln_id,
-                        "package": pkg.get("package"),
-                        "affected": v.get("affected"),
-                        "references": v.get("references"),
-                        "engine": "osv-scanner",
-                        "cmd": cmd,
-                        "returncode": r.get("returncode"),
-                    },
-                ))
+                pkg_name = (pkg.get("package", {}) or {}).get("name", "pkg")
+
+                out.append(
+                    Finding(
+                        id=f"osv:{vuln_id}:{pkg_name}",
+                        category="dependency",
+                        severity="HIGH",
+                        title=f"Dependency vulnerability {vuln_id}",
+                        description=(v.get("summary") or v.get("details") or "")[:1000],
+                        location=None,
+                        metadata={
+                            "osv_id": vuln_id,
+                            "package": pkg.get("package"),
+                            "affected": v.get("affected"),
+                            "references": v.get("references"),
+                            "engine": "osv-scanner",
+                            "cmd": cmd,
+                            "returncode": returncode,
+                            "stderr": stderr[:2000] if stderr else None,
+                        },
+                    )
+                )
+
     return out

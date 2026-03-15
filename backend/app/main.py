@@ -24,7 +24,7 @@ app = FastAPI(title="PatchPilot API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -64,13 +64,6 @@ def _scan_repo_dir(repo_dir: Path):
 
 
 def github_zip_url(repo_url: str, ref: str = "main") -> str:
-    """
-    Convert a GitHub repo URL like:
-      https://github.com/owner/repo
-      https://github.com/owner/repo.git
-    into a ZIP download URL:
-      https://github.com/owner/repo/archive/refs/heads/<ref>.zip
-    """
     repo_url = repo_url.strip()
     m = re.match(r"^https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo_url, re.IGNORECASE)
     if not m:
@@ -91,16 +84,18 @@ async def download_to_path(url: str, dest_path: Path) -> None:
 
 def _maybe_use_single_top_folder(repo_dir: Path) -> Path:
     """
-    GitHub ZIPs typically extract into a single directory like <repo>-main/.
-    If that happens, point scanners at that inner directory.
+    If the extracted folder contains exactly one top-level directory (typical GitHub ZIP),
+    treat that directory as the scan root.
     """
     try:
-        children = [p for p in repo_dir.iterdir() if p.is_dir()]
+        dirs = [p for p in repo_dir.iterdir() if p.is_dir()]
+        files = [p for p in repo_dir.iterdir() if p.is_file()]
     except FileNotFoundError:
         return repo_dir
 
-    if len(children) == 1:
-        return children[0]
+    if len(dirs) == 1 and len(files) == 0:
+        return dirs[0]
+
     return repo_dir
 
 
