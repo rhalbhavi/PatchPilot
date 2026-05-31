@@ -120,33 +120,43 @@ async def scan(
     ensure_dir(job_dir)
 
     archive_path = job_dir / project.filename
-    content = await project.read()
-    archive_path.write_bytes(content)
-
-    repo_dir = job_dir / "repo"
-    ensure_dir(repo_dir)
+    success = False
 
     try:
+        content = await project.read()
+        archive_path.write_bytes(content)
+
+        repo_dir = job_dir / "repo"
+        ensure_dir(repo_dir)
+
         unzip_to_dir(archive_path, repo_dir)
+
+        scan_root = _maybe_use_single_top_folder(repo_dir)
+
+        semgrep, osv, gitleaks, findings = _scan_repo_dir(scan_root)
+
+        success = True
+
+        return ScanResponse(
+            job_id=job_id,
+            project_name=project_name,
+            repo_path=str(scan_root),
+            findings=findings,
+            scanners={
+                "semgrep": {"ok": True, "count": len(semgrep)},
+                "osv": {"ok": True, "count": len(osv)},
+                "gitleaks": {"ok": True, "count": len(gitleaks)},
+            },
+        )
+
     except Exception as e:
-        safe_rmtree(job_dir)
-        raise HTTPException(status_code=400, detail=f"Invalid zip upload: {e}")
+        raise HTTPException(status_code=400, detail=f"Scan failed: {e}")
 
-    scan_root = _maybe_use_single_top_folder(repo_dir)
+    finally:
+        if not success:
+            safe_rmtree(job_dir)
 
-    semgrep, osv, gitleaks, findings = _scan_repo_dir(scan_root)
-
-    return ScanResponse(
-        job_id=job_id,
-        project_name=project_name,
-        repo_path=str(scan_root),
-        findings=findings,
-        scanners={
-            "semgrep": {"ok": True, "count": len(semgrep)},
-            "osv": {"ok": True, "count": len(osv)},
-            "gitleaks": {"ok": True, "count": len(gitleaks)},
-        },
-    )
+    
 
 
 @app.post("/scan-url", response_model=ScanResponse)
@@ -165,31 +175,42 @@ async def scan_url(
 
     zip_url = github_zip_url(repo_url, ref=ref)
 
+    success = False
+
     try:
         await download_to_path(zip_url, archive_path)
         unzip_to_dir(archive_path, repo_dir)
+
+        scan_root = _maybe_use_single_top_folder(repo_dir)
+
+        semgrep, osv, gitleaks, findings = _scan_repo_dir(scan_root)
+
+        success = True
+
+        return ScanResponse(
+            job_id=job_id,
+            project_name=project_name,
+            repo_path=str(scan_root),
+            findings=findings,
+            scanners={
+                "semgrep": {"ok": True, "count": len(semgrep)},
+                "osv": {"ok": True, "count": len(osv)},
+                "gitleaks": {"ok": True, "count": len(gitleaks)},
+            },
+        )
+
     except HTTPException:
-        safe_rmtree(job_dir)
         raise
+
     except Exception as e:
-        safe_rmtree(job_dir)
-        raise HTTPException(status_code=400, detail=f"Import from URL failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Import from URL failed: {e}",
+        )
 
-    scan_root = _maybe_use_single_top_folder(repo_dir)
-
-    semgrep, osv, gitleaks, findings = _scan_repo_dir(scan_root)
-
-    return ScanResponse(
-        job_id=job_id,
-        project_name=project_name,
-        repo_path=str(scan_root),
-        findings=findings,
-        scanners={
-            "semgrep": {"ok": True, "count": len(semgrep)},
-            "osv": {"ok": True, "count": len(osv)},
-            "gitleaks": {"ok": True, "count": len(gitleaks)},
-        },
-    )
+    finally:
+        if not success:
+            safe_rmtree(job_dir)
 
 
 @app.post("/fix", response_model=FixResponse)
