@@ -69,7 +69,7 @@ def check_reachability(repo_dir: Path, package_name: str) -> tuple[bool, str | N
                             if pattern.search(line):
                                 rel_path = path.relative_to(repo_dir)
                                 return True, f"Imported in {rel_path}: line {line_num}"
-            except (UnicodeDecodeError, PermissionError):
+            except (UnicodeDecodeError, PermissionError, OSError):
                 continue
 
     return False, None
