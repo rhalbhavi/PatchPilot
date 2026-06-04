@@ -349,17 +349,18 @@ def evidence_pack(job_id: str = Form(...), project_name: str = Form("project")):
         path=str(pack_path), filename=pack_path.name, media_type="application/zip"
     )
 
+
 @app.get("/jobs/{job_id}/findings")
 async def get_findings(job_id: str):
     db = await get_db()
     try:
-        cur = await db.execute(
-            "SELECT job_id FROM jobs WHERE job_id = ?", (job_id,)
-        )
+        cur = await db.execute("SELECT job_id FROM jobs WHERE job_id = ?", (job_id,))
         job_row = await cur.fetchone()
 
         if job_row is None:
-            raise HTTPException(status_code=404, detail=f"No job found with id '{job_id}'")
+            raise HTTPException(
+                status_code=404, detail=f"No job found with id '{job_id}'"
+            )
 
         cur = await db.execute(
             """
@@ -384,13 +385,13 @@ async def get_findings(job_id: str):
 async def get_verify(job_id: str):
     db = await get_db()
     try:
-        cur = await db.execute(
-            "SELECT job_id FROM jobs WHERE job_id = ?", (job_id,)
-        )
+        cur = await db.execute("SELECT job_id FROM jobs WHERE job_id = ?", (job_id,))
         job_row = await cur.fetchone()
 
         if job_row is None:
-            raise HTTPException(status_code=404, detail=f"No job found with id '{job_id}'")
+            raise HTTPException(
+                status_code=404, detail=f"No job found with id '{job_id}'"
+            )
 
         cur = await db.execute(
             """
@@ -408,9 +409,12 @@ async def get_verify(job_id: str):
         await db.close()
 
     if row is None:
-        raise HTTPException(status_code=404, detail=f"No verify outcome recorded yet for job '{job_id}'")
+        raise HTTPException(
+            status_code=404, detail=f"No verify outcome recorded yet for job '{job_id}'"
+        )
 
     return dict(zip(columns, row))
+
 
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: str):
