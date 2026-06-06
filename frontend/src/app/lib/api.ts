@@ -153,3 +153,17 @@ export async function getCweDistribution() {
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()) as CweData[];
 }
+
+export interface DependencyDiffResult {
+  introduced: any[];
+  resolved: any[];
+  persistent: any[];
+}
+
+export const getDependencyDiff = async (): Promise<DependencyDiffResult> => {
+  const response = await fetch("http://localhost:8000/dependency-diff");
+  if (!response.ok) {
+    throw new Error("Failed to fetch dependency diff");
+  }
+  return response.json();
+};

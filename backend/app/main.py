@@ -15,7 +15,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .db import init_db, get_db, get_trend_data, get_cwe_distribution
+from .db import init_db, get_db, get_trend_data, get_cwe_distribution, get_dependency_diff
 from .models import ScanResponse, Finding, FixRequest, FixResponse, VerifyResponse
 from .remediation.engine import propose_fixes
 from .reports.evidence_pack import build_evidence_pack
@@ -222,6 +222,11 @@ async def scan(
                 file_path = f.location.path if f.location else None
                 line_number = f.location.start_line if f.location else None
                 message = f.description or f.title
+
+                pkg_info = (f.metadata or {}).get("package") or {}
+                pkg_name = pkg_info.get("name")
+                pkg_version = pkg_info.get("version")
+                
                 rows.append(
                     (
                         str(uuid.uuid4()),
@@ -234,10 +239,12 @@ async def scan(
                         None,
                         scanner,
                         message,
+                        pkg_name,
+                        pkg_version,
                     )
                 )
             await db.executemany(
-                "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             await db.commit()
@@ -307,6 +314,11 @@ async def scan_url(
                 file_path = f.location.path if f.location else None
                 line_number = f.location.start_line if f.location else None
                 message = f.description or f.title
+                
+                pkg_info = (f.metadata or {}).get("package") or {}
+                pkg_name = pkg_info.get("name")
+                pkg_version = pkg_info.get("version")
+                
                 rows.append(
                     (
                         str(uuid.uuid4()),
@@ -319,11 +331,13 @@ async def scan_url(
                         None,
                         scanner,
                         message,
+                        pkg_name,
+                        pkg_version,
                     )
                 )
             if rows:
                 await db.executemany(
-                    "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     rows,
                 )
             await db.commit()
@@ -469,7 +483,7 @@ async def get_findings(job_id: str):
         cur = await db.execute(
             """
             SELECT id, rule_id, severity, category, file_path,
-                   line_number, cwe, scanner, message, created_at
+                   line_number, cwe, scanner, message, package_name, package_version, created_at
             FROM findings
             WHERE job_id = ?
             ORDER BY created_at
@@ -539,4 +553,10 @@ async def get_trends_endpoint(limit: int = 6):
 async def cwe_distribution_endpoint():
     """Fetches the vulnerability distribution for the frontend donut chart."""
     data = await get_cwe_distribution()
+    return data
+
+
+@app.get("/dependency-diff")
+async def dependency_diff_endpoint():
+    data = await get_dependency_diff()
     return data
