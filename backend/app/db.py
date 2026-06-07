@@ -9,17 +9,19 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS findings (
-                id          TEXT PRIMARY KEY,
-                job_id      TEXT NOT NULL,
-                rule_id     TEXT,
-                severity    TEXT,
-                category    TEXT,
-                file_path   TEXT,
-                line_number INTEGER,
-                cwe         TEXT,
-                scanner     TEXT,
-                message     TEXT,
-                created_at  TEXT DEFAULT (datetime('now'))
+                id              TEXT PRIMARY KEY,
+                job_id          TEXT NOT NULL,
+                rule_id         TEXT,
+                severity        TEXT,
+                category        TEXT,
+                file_path       TEXT,
+                line_number     INTEGER,
+                cwe             TEXT,
+                scanner         TEXT,
+                message         TEXT,
+                package_name    TEXT,
+                package_version TEXT,
+                created_at      TEXT DEFAULT (datetime('now'))
             )
         """)
         await db.execute("""
@@ -39,6 +41,15 @@ async def init_db():
                 verified_at TEXT DEFAULT (datetime('now'))
             )
         """)
+
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("PRAGMA table_info(findings)")
+        columns = [row["name"] for row in await cursor.fetchall()]
+
+        if "package_name" not in columns:
+            await db.execute("ALTER TABLE findings ADD COLUMN package_name TEXT")
+            await db.execute("ALTER TABLE findings ADD COLUMN package_version TEXT")
+
         await db.commit()
 
 
@@ -104,3 +115,67 @@ async def get_cwe_distribution():
 
         rows = await cursor.fetchall()
         return [{"name": row["name"], "value": row["value"]} for row in rows]
+
+
+async def get_dependency_diff():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT job_id, project_name FROM jobs ORDER BY created_at DESC LIMIT 1"
+        )
+        latest_job = await cursor.fetchone()
+
+        if not latest_job:
+            return {"introduced": [], "resolved": [], "persistent": []}
+
+        target_project = latest_job["project_name"]
+
+        cursor = await db.execute(
+            "SELECT job_id FROM jobs WHERE project_name = ? ORDER BY created_at DESC LIMIT 2",
+            (target_project,),
+        )
+        jobs = await cursor.fetchall()
+
+        if len(jobs) < 2:
+            return {"introduced": [], "resolved": [], "persistent": []}
+
+        new_job_id = jobs[0]["job_id"]
+        old_job_id = jobs[1]["job_id"]
+
+        query = """
+            SELECT id, rule_id, severity, message, package_name, package_version
+            FROM findings
+            WHERE job_id = ? AND category = 'dependency'
+        """
+
+        cur_new = await db.execute(query, (new_job_id,))
+        new_findings = await cur_new.fetchall()
+
+        cur_old = await db.execute(query, (old_job_id,))
+        old_findings = await cur_old.fetchall()
+
+        def make_key(f):
+            return (f["rule_id"], f["package_name"])
+
+        old_dict = {make_key(f): dict(f) for f in old_findings}
+        new_dict = {make_key(f): dict(f) for f in new_findings}
+
+        introduced = []
+        resolved = []
+        persistent = []
+
+        for key, new_f in new_dict.items():
+            if key in old_dict:
+                persistent.append(new_f)
+            else:
+                introduced.append(new_f)
+
+        for key, old_f in old_dict.items():
+            if key not in new_dict:
+                resolved.append(old_f)
+
+        return {
+            "introduced": introduced,
+            "resolved": resolved,
+            "persistent": persistent,
+        }

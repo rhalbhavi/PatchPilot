@@ -153,3 +153,26 @@ export async function getCweDistribution() {
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()) as CweData[];
 }
+
+export interface DepFinding {
+  id: string;
+  rule_id: string;
+  severity: string;
+  message: string;
+  package_name: string;
+  package_version: string;
+}
+
+export interface DependencyDiffResult {
+  introduced: DepFinding[];
+  resolved: DepFinding[];
+  persistent: DepFinding[];
+}
+
+export const getDependencyDiff = async (): Promise<DependencyDiffResult> => {
+  const response = await fetch(`${API_BASE}/dependency-diff`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch dependency diff");
+  }
+  return response.json();
+};
