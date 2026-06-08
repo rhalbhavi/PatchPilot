@@ -27,6 +27,7 @@ from .db import (
     upsert_contributor_stat,
 )
 from .models import ScanResponse, Finding, FixRequest, FixResponse, VerifyResponse
+from app.ml.ranker import load_ranker, scoring_function
 from .remediation.engine import propose_fixes
 from .reports.evidence_pack import build_evidence_pack
 from .sandbox.verify import verify_repo
@@ -36,6 +37,7 @@ from .scanners.semgrep import run_semgrep
 from .utils.fs import ensure_dir, safe_rmtree, unzip_to_dir
 
 _MAX_UPLOAD_MB_RAW = os.environ.get("MAX_UPLOAD_MB")
+RANKER = load_ranker()
 
 try:
     MAX_UPLOAD_MB = int(_MAX_UPLOAD_MB_RAW) if _MAX_UPLOAD_MB_RAW else 100
@@ -105,7 +107,15 @@ def _scan_repo_dir(repo_dir: Path):
     findings.extend(osv)
     findings.extend(gitleaks)
 
-    findings = _prioritize_findings(findings)
+    findings = scoring_function(findings, RANKER)
+
+    if RANKER:
+        findings.sort(
+            key=lambda f: getattr(f, "ml_score", 0.0),
+            reverse=True,
+        )
+    else:
+        findings = _prioritize_findings(findings)
 
     return semgrep, osv, gitleaks, findings
 
@@ -213,53 +223,56 @@ async def scan(
 
     semgrep, osv, gitleaks, findings = _scan_repo_dir(scan_root)
 
+    db = await get_db()
+
     try:
-        async with await get_db() as db:
-            await db.execute(
-                "INSERT INTO jobs (job_id, project_name, scan_method) VALUES (?, ?, ?)",
-                (job_id, project_name, "zip"),
+        await db.execute(
+            "INSERT INTO jobs (job_id, project_name, scan_method) VALUES (?, ?, ?)",
+            (job_id, project_name, "zip"),
+        )
+        rows = []
+        for f in findings:
+            engine = (f.metadata or {}).get("engine")
+            scanner = {"osv-scanner": "osv"}.get(engine, engine)
+            rule_id = (
+                (f.metadata or {}).get("check_id")
+                or (f.metadata or {}).get("rule")
+                or (f.metadata or {}).get("osv_id")
+                or f.title
             )
-            rows = []
-            for f in findings:
-                engine = (f.metadata or {}).get("engine")
-                scanner = {"osv-scanner": "osv"}.get(engine, engine)
-                rule_id = (
-                    (f.metadata or {}).get("check_id")
-                    or (f.metadata or {}).get("rule")
-                    or (f.metadata or {}).get("osv_id")
-                    or f.title
-                )
-                file_path = f.location.path if f.location else None
-                line_number = f.location.start_line if f.location else None
-                message = f.description or f.title
+            file_path = f.location.path if f.location else None
+            line_number = f.location.start_line if f.location else None
+            message = f.description or f.title
 
-                pkg_info = (f.metadata or {}).get("package") or {}
-                pkg_name = pkg_info.get("name")
-                pkg_version = pkg_info.get("version")
+            pkg_info = (f.metadata or {}).get("package") or {}
+            pkg_name = pkg_info.get("name")
+            pkg_version = pkg_info.get("version")
 
-                rows.append(
-                    (
-                        str(uuid.uuid4()),
-                        job_id,
-                        rule_id,
-                        f.severity,
-                        f.category,
-                        file_path,
-                        line_number,
-                        None,
-                        scanner,
-                        message,
+            rows.append(
+                (
+                    str(uuid.uuid4()),
+                    job_id,
+                    rule_id,
+                    f.severity,
+                    f.category,
+                    file_path,
+                    line_number,
+                    None,
+                    scanner,
+                    message,
                         pkg_name,
                         pkg_version,
-                    )
                 )
-            await db.executemany(
-                "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows,
             )
-            await db.commit()
+        await db.executemany(
+            "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        await db.commit()
     except Exception:
         logger.exception("DB write failed for job %s", job_id)
+    finally:
+        await db.close()
     return ScanResponse(
         job_id=job_id,
         project_name=project_name,
