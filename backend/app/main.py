@@ -223,56 +223,53 @@ async def scan(
 
     semgrep, osv, gitleaks, findings = _scan_repo_dir(scan_root)
 
-    db = await get_db()
-
     try:
-        await db.execute(
-            "INSERT INTO jobs (job_id, project_name, scan_method) VALUES (?, ?, ?)",
-            (job_id, project_name, "zip"),
-        )
-        rows = []
-        for f in findings:
-            engine = (f.metadata or {}).get("engine")
-            scanner = {"osv-scanner": "osv"}.get(engine, engine)
-            rule_id = (
-                (f.metadata or {}).get("check_id")
-                or (f.metadata or {}).get("rule")
-                or (f.metadata or {}).get("osv_id")
-                or f.title
+        async with await get_db() as db:
+            await db.execute(
+                "INSERT INTO jobs (job_id, project_name, scan_method) VALUES (?, ?, ?)",
+                (job_id, project_name, "zip"),
             )
-            file_path = f.location.path if f.location else None
-            line_number = f.location.start_line if f.location else None
-            message = f.description or f.title
-
-            pkg_info = (f.metadata or {}).get("package") or {}
-            pkg_name = pkg_info.get("name")
-            pkg_version = pkg_info.get("version")
-
-            rows.append(
-                (
-                    str(uuid.uuid4()),
-                    job_id,
-                    rule_id,
-                    f.severity,
-                    f.category,
-                    file_path,
-                    line_number,
-                    None,
-                    scanner,
-                    message,
-                    pkg_name,
-                    pkg_version,
+            rows = []
+            for f in findings:
+                engine = (f.metadata or {}).get("engine")
+                scanner = {"osv-scanner": "osv"}.get(engine, engine)
+                rule_id = (
+                    (f.metadata or {}).get("check_id")
+                    or (f.metadata or {}).get("rule")
+                    or (f.metadata or {}).get("osv_id")
+                    or f.title
                 )
+                file_path = f.location.path if f.location else None
+                line_number = f.location.start_line if f.location else None
+                message = f.description or f.title
+
+                pkg_info = (f.metadata or {}).get("package") or {}
+                pkg_name = pkg_info.get("name")
+                pkg_version = pkg_info.get("version")
+
+                rows.append(
+                    (
+                        str(uuid.uuid4()),
+                        job_id,
+                        rule_id,
+                        f.severity,
+                        f.category,
+                        file_path,
+                        line_number,
+                        None,
+                        scanner,
+                        message,
+                        pkg_name,
+                        pkg_version,
+                    )
+                )
+            await db.executemany(
+                "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
             )
-        await db.executemany(
-            "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
-        await db.commit()
+            await db.commit()
     except Exception:
         logger.exception("DB write failed for job %s", job_id)
-    finally:
-        await db.close()
     return ScanResponse(
         job_id=job_id,
         project_name=project_name,
