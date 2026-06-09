@@ -17,12 +17,15 @@ from fastapi import HTTPException
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_redirect_response(location: str, status_code: int = 302) -> httpx.Response:
     """Build a minimal redirect httpx.Response."""
     return httpx.Response(
         status_code=status_code,
         headers={"location": location},
-        request=httpx.Request("GET", "https://github.com/owner/repo/archive/refs/heads/main.zip"),
+        request=httpx.Request(
+            "GET", "https://github.com/owner/repo/archive/refs/heads/main.zip"
+        ),
     )
 
 
@@ -30,13 +33,16 @@ def _make_ok_response(content: bytes = b"PK\x03\x04fakezip") -> httpx.Response:
     return httpx.Response(
         status_code=200,
         content=content,
-        request=httpx.Request("GET", "https://codeload.github.com/owner/repo/zip/refs/heads/main"),
+        request=httpx.Request(
+            "GET", "https://codeload.github.com/owner/repo/zip/refs/heads/main"
+        ),
     )
 
 
 # ---------------------------------------------------------------------------
 # Allowlist constant sanity checks
 # ---------------------------------------------------------------------------
+
 
 def test_allowlist_contains_required_github_hosts():
     assert "github.com" in ALLOWED_REDIRECT_HOSTS
@@ -50,6 +56,7 @@ def test_max_redirects_is_reasonable():
 # ---------------------------------------------------------------------------
 # SSRF / disallowed-host tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_blocks_redirect_to_internal_metadata_ip(tmp_path):
@@ -124,6 +131,7 @@ async def test_blocks_redirect_to_arbitrary_external_host(tmp_path):
 # Happy-path tests (redirects within the allowlist)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_follows_redirect_to_codeload_github(tmp_path):
     """
@@ -178,6 +186,7 @@ async def test_direct_200_no_redirect(tmp_path):
 # Edge-case tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.anyio
 async def test_too_many_redirects_raises(tmp_path):
     """Exceeding MAX_REDIRECTS should raise an HTTPException."""
@@ -211,7 +220,9 @@ async def test_redirect_missing_location_header_raises(tmp_path):
     bad_redirect = httpx.Response(
         status_code=302,
         headers={},  # no location
-        request=httpx.Request("GET", "https://github.com/owner/repo/archive/refs/heads/main.zip"),
+        request=httpx.Request(
+            "GET", "https://github.com/owner/repo/archive/refs/heads/main.zip"
+        ),
     )
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=bad_redirect)
@@ -236,7 +247,9 @@ async def test_non_200_non_redirect_raises(tmp_path):
 
     not_found = httpx.Response(
         status_code=404,
-        request=httpx.Request("GET", "https://github.com/owner/repo/archive/refs/heads/main.zip"),
+        request=httpx.Request(
+            "GET", "https://github.com/owner/repo/archive/refs/heads/main.zip"
+        ),
     )
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=not_found)
