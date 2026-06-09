@@ -3,17 +3,17 @@ name: PR Guardrails
 on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
-
-permissions:
-  pull-requests: write
-  contents: read
-  issues: write
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
-  triage-and-security:
-    name: Validate Template, Label, & Scan
+  triage-and-label:
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
-    
+    permissions:
+      pull-requests: write
+      issues: write
+      contents: read
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -186,9 +186,17 @@ jobs:
               }
             }
 
+  security-scan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
       - name: Basic Security Scan (Gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          report_format: sarif
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
