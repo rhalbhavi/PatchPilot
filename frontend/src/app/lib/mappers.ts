@@ -23,9 +23,11 @@ export function mapBackendFindingToUi(f: BackendFinding): Finding {
     severity: mapSeverity(f.severity),
     category: f.category,
     title: f.title,
-    file: f.file,
-    lineNumber: f.line,
-    tool: (f.tool as Finding["tool"]) ?? "semgrep",
+
+    file: f.location?.path ?? "Unknown file",
+    lineNumber: f.location?.start_line ?? 0,
+    tool: (f.metadata?.engine as Finding["tool"]) ?? "semgrep",
+    
     confidence: f.confidence ?? 100,
     status: "open",
     description: f.description ?? "",

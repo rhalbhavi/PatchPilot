@@ -101,7 +101,7 @@ export function Findings() {
         q.length === 0 ||
         f.title.toLowerCase().includes(q) ||
         f.category.toLowerCase().includes(q) ||
-        f.file.toLowerCase().includes(q);
+        (f.file ?? "").toLowerCase().includes(q);
 
       const matchesSeverity =
         activeSeverities.size === 0 || activeSeverities.has(f.severity);
