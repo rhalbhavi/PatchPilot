@@ -4,8 +4,11 @@ import json
 from pathlib import Path
 from typing import List
 
-from ..models import Finding
+from ..models import Finding, Reachability
+from ..utils.fs import check_reachability
 from ..utils.exec import run_cmd
+
+from ..utils.ml_features import extract_features
 
 
 def run_osv_scanner(repo_dir: Path) -> List[Finding]:
@@ -42,21 +45,41 @@ def run_osv_scanner(repo_dir: Path) -> List[Finding]:
         return []
 
     out: List[Finding] = []
+    unique_packages = set()
 
     results = data.get("results", []) or []
     for res in results:
         packages = res.get("packages", []) or []
         for pkg in packages:
             vulns = pkg.get("vulnerabilities", []) or []
+            if not vulns:
+                continue
+            pkg_name = (pkg.get("package", {}) or {}).get("name")
+            if pkg_name:
+                unique_packages.add(pkg_name)
+
             for v in vulns:
                 vuln_id = v.get("id", "OSV-UNKNOWN")
-                pkg_name = (pkg.get("package", {}) or {}).get("name", "pkg")
+
+                finding_id = f"osv:{vuln_id}:{pkg_name or 'pkg'}"
+                severity = "HIGH"
+
+                raw_data_for_extractor = {
+                    "id": finding_id,
+                    "severity": severity,
+                    "location": {},
+                    "metadata": {"cwe_category": "unknown"},
+                }
+
+                ml_features = extract_features(
+                    raw_data_for_extractor, scanner_name="osv"
+                )
 
                 out.append(
                     Finding(
-                        id=f"osv:{vuln_id}:{pkg_name}",
+                        id=finding_id,
                         category="dependency",
-                        severity="HIGH",
+                        severity=severity,
                         title=f"Dependency vulnerability {vuln_id}",
                         description=(v.get("summary") or v.get("details") or "")[:1000],
                         location=None,
@@ -70,7 +93,19 @@ def run_osv_scanner(repo_dir: Path) -> List[Finding]:
                             "returncode": returncode,
                             "stderr": stderr[:2000] if stderr else None,
                         },
+                        features=ml_features,
                     )
+                )
+
+    if unique_packages:
+        reachability_results = check_reachability(repo_dir, unique_packages)
+
+        for finding in out:
+            pkg_name = (finding.metadata.get("package") or {}).get("name")
+            if pkg_name and pkg_name in reachability_results:
+                reachable, evidence = reachability_results[pkg_name]
+                finding.reachability = Reachability(
+                    reachable=reachable, evidence=evidence
                 )
 
     return out

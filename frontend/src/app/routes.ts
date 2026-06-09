@@ -4,6 +4,7 @@ import { Dashboard } from "./pages/dashboard";
 import { Findings } from "./pages/findings";
 import { Fix } from "./pages/fix";
 import { Verify } from "./pages/verify";
+import { Leaderboard } from "./pages/leaderboard";
 
 export const router = createBrowserRouter([
   {
@@ -14,6 +15,7 @@ export const router = createBrowserRouter([
       { path: "findings", Component: Findings },
       { path: "fix", Component: Fix },
       { path: "verify", Component: Verify },
+      { path: "leaderboard", Component: Leaderboard },
     ],
   },
 ]);

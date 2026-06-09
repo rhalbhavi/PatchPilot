@@ -2,6 +2,23 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ||
   "http://localhost:8000";
 
+export type HealthResponse = {
+  ok: boolean;
+  status: "healthy" | "degraded";
+  scanners: Record<string, boolean>;
+};
+
+export async function getHealth() {
+  const res = await fetch(`${API_BASE}/health`);
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return (await res.json()) as HealthResponse;
+}
+
+
 export type ScanResponse = {
   job_id: string;
   project_name: string;
@@ -58,7 +75,8 @@ export async function scanRepoUrl(
   });
 
   if (!res.ok) {
-    throw new Error(await res.text());
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.detail ?? "Import from URL failed");
   }
 
   return (await res.json()) as ScanResponse;
@@ -112,4 +130,81 @@ export async function downloadEvidencePack(
   const filename = match?.[1] || `evidence-pack-${jobId}.zip`;
 
   return { blob, filename };
+}
+
+export type TrendData = {
+  date: string;
+  findings: number;
+};
+
+export async function getTrends(limit = 6) {
+  const res = await fetch(`${API_BASE}/trends?limit=${limit}`);
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as TrendData[];
+}
+
+export type CweData = {
+  name: string;
+  value: number;
+};
+
+export async function getCweDistribution() {
+  const res = await fetch(`${API_BASE}/cwe-distribution`);
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as CweData[];
+}
+
+export interface DepFinding {
+  id: string;
+  rule_id: string;
+  severity: string;
+  message: string;
+  package_name: string;
+  package_version: string;
+}
+
+export interface DependencyDiffResult {
+  introduced: DepFinding[];
+  resolved: DepFinding[];
+  persistent: DepFinding[];
+}
+
+export const getDependencyDiff = async (): Promise<DependencyDiffResult> => {
+  const response = await fetch(`${API_BASE}/dependency-diff`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch dependency diff");
+  }
+  return response.json();
+};
+
+export interface ContributorStat {
+  github_username: string;
+  findings_closed: number;
+  fixes_passed: number;
+  prs_merged: number;
+  last_updated: string;
+  total_score: number;
+}
+
+export interface LeaderboardUpdateRequest {
+  github_username: string;
+  pr_description?: string;
+  fixes_passed?: number;
+  is_pr_merged?: boolean;
+}
+
+export async function getLeaderboard(): Promise<ContributorStat[]> {
+  const res = await fetch(`${API_BASE}/leaderboard`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateLeaderboard(data: LeaderboardUpdateRequest) {
+  const res = await fetch(`${API_BASE}/leaderboard/update`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

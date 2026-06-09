@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -28,3 +30,71 @@ def unzip_to_dir(zip_path: Path, out_dir: Path) -> None:
         for item in tmp.iterdir():
             shutil.move(str(item), str(out_dir / item.name))
         shutil.rmtree(tmp)
+
+
+def check_reachability(
+    repo_dir: Path, package_names: set[str]
+) -> dict[str, tuple[bool, str | None]]:
+    ignore_dirs = {
+        ".git",
+        "node_modules",
+        "venv",
+        ".venv",
+        "env",
+        "__pycache__",
+        "dist",
+        "build",
+        ".next",
+    }
+    target_exts = {".js", ".jsx", ".ts", ".tsx", ".py", ".cjs", ".mjs"}
+
+    results = {pkg: (False, None) for pkg in package_names}
+    remaining = set(package_names)
+
+    compiled_patterns = {}
+    for pkg in package_names:
+        patterns = [
+            rf"require\s*\(\s*['\"]{re.escape(pkg)}(?:/[^'\"]+)?['\"]\s*\)",
+            rf"from\s+['\"]{re.escape(pkg)}(?:/[^'\"]+)?['\"]",
+            rf"import\s+['\"]{re.escape(pkg)}(?:/[^'\"]+)?['\"]",
+            rf"import\s+{re.escape(pkg)}\b",
+            rf"from\s+{re.escape(pkg)}\b\s+import",
+        ]
+        compiled_patterns[pkg] = [re.compile(p) for p in patterns]
+
+    for root, dirs, files in os.walk(repo_dir):
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
+
+        if not remaining:
+            break
+
+        for file in files:
+            path = Path(root) / file
+            if path.suffix not in target_exts:
+                continue
+
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line_num, line in enumerate(f, 1):
+                        found = []
+                        for pkg in remaining:
+                            for pattern in compiled_patterns[pkg]:
+                                if pattern.search(line):
+                                    rel_path = path.relative_to(repo_dir)
+                                    results[pkg] = (
+                                        True,
+                                        f"Imported in {rel_path}: line {line_num}",
+                                    )
+                                    found.append(pkg)
+                                    break
+                        for pkg in found:
+                            remaining.remove(pkg)
+                        if not remaining:
+                            break
+            except (UnicodeDecodeError, PermissionError, OSError):
+                continue
+
+            if not remaining:
+                break
+
+    return results

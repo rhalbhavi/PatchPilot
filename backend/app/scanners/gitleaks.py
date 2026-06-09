@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List
 from ..models import Finding, Location
 from ..utils.exec import run_cmd
+from ..utils.ml_features import extract_features
 
 
 def run_gitleaks(repo_dir: Path) -> List[Finding]:
@@ -46,15 +47,29 @@ def run_gitleaks(repo_dir: Path) -> List[Finding]:
         start = item.get("StartLine")
         end = item.get("EndLine")
         desc = item.get("Description", "") or item.get("Match", "")
+
+        finding_id = f"gitleaks:{rule}:{path}:{start}"
+        severity = "CRITICAL"
+
+        raw_data_for_extractor = {
+            "id": finding_id,
+            "severity": severity,
+            "location": {"path": path},
+            "metadata": {"cwe_category": "CWE-798"},
+        }
+
+        ml_features = extract_features(raw_data_for_extractor, scanner_name="gitleaks")
+
         out.append(
             Finding(
-                id=f"gitleaks:{rule}:{path}:{start}",
+                id=finding_id,
                 category="secret",
-                severity="CRITICAL",
+                severity=severity,
                 title=f"Secret detected: {rule}",
                 description=str(desc)[:1000],
                 location=Location(path=path, start_line=start, end_line=end),
                 metadata={"engine": "gitleaks", "rule": rule},
+                features=ml_features,  # <--- INJECTED HERE
             )
         )
     return out

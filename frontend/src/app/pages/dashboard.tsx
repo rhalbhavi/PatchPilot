@@ -4,6 +4,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { scanRepoUrl, scanZip } from "../lib/api";
 import { saveLastScan } from "../lib/scan-store";
 import { Button } from "../components/ui/button";
+import { TrendChart } from "../components/trend-chart";
+import { CweChart } from "../components/cwe-chart"
+import { DependencyDiff } from "../components/dependency-diff";
 import {
   Card,
   CardContent,
@@ -347,7 +350,21 @@ export function Dashboard() {
           </div>
         </CardContent>
       </Card>
-
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <TrendChart />
+          <CweChart />
+        </div>
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Supply Chain Delta</CardTitle>
+            <CardDescription>
+              Vulnerabilities introduced or resolved in your dependencies between the last two scans.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DependencyDiff />
+          </CardContent>
+        </Card>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>

@@ -52,6 +52,15 @@ export function Header() {
           >
             Verify
           </Link>
+          <Link
+            to="/leaderboard"
+            className={cn(
+              "text-sm font-medium transition-colors hover:text-primary",
+              isActive("/leaderboard") ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            Leaderboard
+          </Link>
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
