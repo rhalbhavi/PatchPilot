@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List
 
 from ..models import Finding, Location
+from ..utils.categories import normalize_category
 from ..utils.exec import run_cmd
 from ..utils.ml_features import extract_features
 
@@ -22,7 +23,7 @@ def run_semgrep(repo_dir: Path) -> List[Finding]:
         return [
             Finding(
                 id="semgrep:error",
-                category="sast",
+                category=normalize_category("sast"),
                 severity="INFO",
                 title="Semgrep failed to run",
                 description=r["stderr"][:5000],
@@ -74,7 +75,7 @@ def run_semgrep(repo_dir: Path) -> List[Finding]:
         out.append(
             Finding(
                 id=finding_id,
-                category="sast",
+                category=normalize_category("sast"),
                 severity=severity,
                 title=check_id,
                 description=msg,

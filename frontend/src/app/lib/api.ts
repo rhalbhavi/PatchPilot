@@ -233,3 +233,39 @@ export async function downloadAuditReport(jobId: string) {
   const blob = await res.blob();
   return { blob, filename: `PatchPilot-Audit-${jobId}.pdf` };
 }
+
+export type RepoStatus = {
+  job_id: string;
+  project_name: string;
+  status: "pending" | "scanning" | "completed" | "failed";
+};
+
+export type OrgJobStatusResponse = {
+  org_job_id: string;
+  status: "pending" | "scanning" | "completed";
+  repos: RepoStatus[];
+};
+
+export async function scanOrganization(orgUrl: string) {
+  const res = await fetch(`${API_BASE}/api/scans/org`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ org_url: orgUrl }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return (await res.json()) as { org_job_id: string; org_name: string; repo_count: number };
+}
+
+export async function getOrgJobStatus(orgJobId: string) {
+  const res = await fetch(`${API_BASE}/api/scans/org/${orgJobId}/status`);
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return (await res.json()) as OrgJobStatusResponse;
+}

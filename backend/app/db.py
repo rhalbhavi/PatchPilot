@@ -9,6 +9,14 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "..", "patchpilot.db")
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS org_jobs (
+                id TEXT PRIMARY KEY,
+                org_name TEXT,
+                status TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS findings (
                 id              TEXT PRIMARY KEY,
                 job_id          TEXT NOT NULL,
@@ -60,6 +68,15 @@ async def init_db():
         if "package_name" not in columns:
             await db.execute("ALTER TABLE findings ADD COLUMN package_name TEXT")
             await db.execute("ALTER TABLE findings ADD COLUMN package_version TEXT")
+
+        cursor = await db.execute("PRAGMA table_info(jobs)")
+        job_columns = [row["name"] for row in await cursor.fetchall()]
+        if "org_job_id" not in job_columns:
+            await db.execute("ALTER TABLE jobs ADD COLUMN org_job_id TEXT")
+        if "status" not in job_columns:
+            await db.execute(
+                "ALTER TABLE jobs ADD COLUMN status TEXT DEFAULT 'completed'"
+            )
 
         await db.commit()
 

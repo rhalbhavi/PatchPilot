@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { Upload, Link as LinkIcon, Clock, Trash2, Download, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
+import { Upload, Link as LinkIcon, Clock, Trash2, Download, Loader2, CheckCircle, AlertTriangle, Building2, Layers } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { scanRepoUrl, scanZip, downloadAuditReport } from "../lib/api";
+import { scanRepoUrl, scanZip, downloadAuditReport, scanOrganization, getOrgJobStatus } from "../lib/api";
 import { saveLastScan } from "../lib/scan-store";
 import { Button } from "../components/ui/button";
 import { TrendChart } from "../components/trend-chart";
@@ -147,6 +147,13 @@ export function Dashboard() {
   const [repoUrl, setRepoUrl] = useState("");
   const [repoRef, setRepoRef] = useState("main");
 
+  const [orgDialogOpen, setOrgDialogOpen] = useState(false);
+  const [orgUrl, setOrgUrl] = useState("");
+  const [activeOrgJobId, setActiveOrgJobId] = useState<string | null>(null);
+  const [orgStatusData, setOrgStatusData] = useState<any>(null);
+  const [pollingIntervalId, setPollingIntervalId] = useState<any>(null);
+  const [expectedRepoCount, setExpectedRepoCount] = useState<number>(0);
+
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     return new Intl.DateTimeFormat("en-US", {
@@ -220,6 +227,46 @@ export function Dashboard() {
     } catch (e: any) {
       setScanError(e?.message ?? "Import from URL failed");
     } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const handleScanOrg = async () => {
+    const url = orgUrl.trim();
+    if (!url) {
+      setScanError("Please enter a valid GitHub Organization URL.");
+      return;
+    }
+
+    setScanError(null);
+    setScanLoading(true);
+
+    try {
+      const data = await scanOrganization(url);
+      setActiveOrgJobId(data.org_job_id);
+      setExpectedRepoCount(data.repo_count);
+      setOrgDialogOpen(false);
+
+      getOrgJobStatus(data.org_job_id).then(setOrgStatusData).catch(() => {});
+
+      const interval = setInterval(async () => {
+        try {
+          const statusRes = await getOrgJobStatus(data.org_job_id);
+          setOrgStatusData(statusRes);
+
+          if (statusRes.status === "completed") {
+            clearInterval(interval);
+            setScanLoading(false);
+          }
+        } catch (err) {
+          clearInterval(interval);
+          setScanLoading(false);
+        }
+      }, 3000);
+
+      setPollingIntervalId(interval);
+    } catch (e: any) {
+      setScanError(e?.message ?? "Organization batch scan failed");
       setScanLoading(false);
     }
   };
@@ -326,6 +373,15 @@ export function Dashboard() {
                   <LinkIcon className="h-4 w-4 mr-2" />
                   Import from URL
                 </Button>
+
+                <Button
+                  variant="outline"
+                  disabled={scanLoading}
+                  onClick={() => setOrgDialogOpen(true)}
+                >
+                  <Building2 className="h-4 w-4 mr-2" />
+                  Scan Organization
+                </Button>
               </div>
             </div>
           </div>
@@ -380,6 +436,127 @@ export function Dashboard() {
                     {scanLoading ? "Importing..." : "Import & Scan"}
                   </Button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {orgDialogOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-lg rounded-lg bg-background border border-border p-4 shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-lg font-semibold">Scan Organization</div>
+                    <div className="text-sm text-muted-foreground">
+                      Fetch and execute vulnerability tests across all repositories
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setOrgDialogOpen(false)}
+                    disabled={scanLoading}
+                  >
+                    Close
+                  </Button>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <Input
+                    placeholder="https://github.com/your-org"
+                    value={orgUrl}
+                    onChange={(e) => setOrgUrl(e.target.value)}
+                    disabled={scanLoading}
+                  />
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setOrgDialogOpen(false)}
+                    disabled={scanLoading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleScanOrg}
+                    disabled={scanLoading || !orgUrl.trim()}
+                  >
+                    {scanLoading ? "Initializing..." : "Run Batch Scan"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {activeOrgJobId && orgStatusData && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+              <div className="w-full max-w-2xl rounded-lg bg-background border border-border shadow-2xl flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
+                
+                {/* Modal Header */}
+                <div className="p-6 border-b flex items-center justify-between bg-muted/30 rounded-t-lg">
+                  <div className="flex items-center gap-4">
+                    <div className="p-2.5 bg-primary/10 rounded-lg border border-primary/20">
+                      <Layers className="h-6 w-6 text-primary" />
+                    </div>
+                    <div>
+                      <h2 className="font-semibold text-lg leading-tight mb-1">Batch Cluster Engine Tracking</h2>
+                      <p className="text-sm text-muted-foreground">Scanning organization repositories concurrently</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className={cn(
+                      "text-xs uppercase px-3 py-1 rounded font-mono font-bold border",
+                      orgStatusData.status === "completed" 
+                        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                        : "bg-primary/10 text-primary border-primary/20"
+                    )}>
+                      {orgStatusData.status}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Body / Scrollable List */}
+                <div className="p-6 overflow-y-auto flex-1 min-h-[200px]">
+                  {!orgStatusData.repos || orgStatusData.repos.length < expectedRepoCount ? (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-4 py-12">
+                      <Loader2 className="w-10 h-10 animate-spin text-primary/60 mb-2" />
+                      <p className="text-base font-medium text-foreground/80">Please wait...</p>
+                      <p className="text-sm">Initializing cluster tools and mounting repository directories</p>
+                    </div>
+                  ) : (
+                    <div className="border rounded-md divide-y bg-muted/10 shadow-inner">
+                      {orgStatusData.repos.map((repo: any) => (
+                        <div key={repo.job_id} className="flex items-center justify-between p-4 text-sm hover:bg-muted/30 transition-colors">
+                          <span className="font-medium text-foreground/90">{repo.project_name}</span>
+                          <div className="flex items-center gap-3">
+                            {repo.status === "scanning" && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+                            {repo.status === "completed" && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                            <span className="text-xs font-mono text-muted-foreground capitalize bg-background px-2.5 py-1 rounded border shadow-sm w-24 text-center">
+                              {repo.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Footer */}
+                {orgStatusData.status === "completed" && (
+                  <div className="p-6 border-t bg-muted/10 rounded-b-lg flex justify-end">
+                    <Button 
+                      size="lg"
+                      onClick={() => {
+                        if (pollingIntervalId) clearInterval(pollingIntervalId);
+                        setActiveOrgJobId(null);
+                        setOrgStatusData(null);
+                        setOrgUrl("");
+                        navigate("/findings");
+                      }}
+                    >
+                      View Collected Analytics
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}

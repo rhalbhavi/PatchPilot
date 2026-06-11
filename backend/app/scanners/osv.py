@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List
 
 from ..models import Finding, Reachability
+from ..utils.categories import normalize_category
 from ..utils.exec import run_cmd
 from ..utils.fs import check_reachability
 from ..utils.ml_features import extract_features
@@ -107,7 +108,7 @@ def run_osv_scanner(repo_dir: Path) -> List[Finding]:
                 out.append(
                     Finding(
                         id=finding_id,
-                        category="dependency",
+                        category=normalize_category("dependency"),
                         severity=severity,
                         title=f"Dependency vulnerability {vuln_id}",
                         description=(v.get("summary") or v.get("details") or "")[:1000],

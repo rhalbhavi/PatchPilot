@@ -59,3 +59,19 @@ class FixResponse(BaseModel):
 class VerifyResponse(BaseModel):
     ok: bool
     checks: Dict[str, Any]
+
+
+class OrgScanRequest(BaseModel):
+    org_url: str
+
+
+class RepoStatus(BaseModel):
+    job_id: str
+    project_name: str
+    status: str
+
+
+class OrgJobStatusResponse(BaseModel):
+    org_job_id: str
+    status: str
+    repos: List[RepoStatus]

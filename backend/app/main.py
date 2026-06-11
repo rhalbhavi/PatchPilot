@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -9,8 +10,17 @@ import uuid
 from pathlib import Path
 from typing import List
 
+import aiosqlite
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -31,6 +41,9 @@ from .models import (
     FixRequest,
     FixResponse,
     Location,
+    OrgJobStatusResponse,
+    OrgScanRequest,
+    RepoStatus,
     ScanResponse,
     VerifyResponse,
 )
@@ -745,3 +758,218 @@ async def update_leaderboard_endpoint(req: LeaderboardUpdateRequest):
             "prs_merged": prs_merged,
         },
     }
+
+
+async def fetch_org_repos(org_name: str) -> List[dict]:
+    url = f"https://api.github.com/orgs/{org_name}/repos?per_page=100&sort=updated"
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    token = os.environ.get("GITHUB_PAT")
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=headers, follow_redirects=True)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch org repos")
+        repos = resp.json()
+        return [r for r in repos if not r.get("archived")][:20]
+
+
+async def _run_repo_scan_task(
+    sem: asyncio.Semaphore,
+    job_id: str,
+    repo_url: str,
+    ref: str,
+    project_name: str,
+    org_job_id: str,
+):
+    async with sem:
+        try:
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE jobs SET status = 'scanning' WHERE job_id = ?", (job_id,)
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+            job_dir = WORK_ROOT / job_id
+            ensure_dir(job_dir)
+            archive_path = job_dir / "repo.zip"
+            repo_dir = job_dir / "repo"
+            ensure_dir(repo_dir)
+
+            zip_url = github_zip_url(repo_url, ref=ref)
+            await download_to_path(zip_url, archive_path)
+            unzip_to_dir(archive_path, repo_dir)
+
+            scan_root = _maybe_use_single_top_folder(repo_dir)
+            semgrep, osv, gitleaks, entropy, findings = _scan_repo_dir(scan_root)
+
+            db = await get_db()
+            try:
+                rows = []
+                for f in findings:
+                    engine = (f.metadata or {}).get("engine")
+                    scanner = {"osv-scanner": "osv"}.get(engine, engine)
+                    rule_id = (
+                        (f.metadata or {}).get("check_id")
+                        or (f.metadata or {}).get("rule")
+                        or (f.metadata or {}).get("osv_id")
+                        or f.title
+                    )
+                    file_path = f.location.path if f.location else None
+                    line_number = f.location.start_line if f.location else None
+                    message = f.description or f.title
+                    pkg_info = (f.metadata or {}).get("package") or {}
+                    pkg_name = pkg_info.get("name")
+                    pkg_version = pkg_info.get("version")
+
+                    rows.append(
+                        (
+                            str(uuid.uuid4()),
+                            job_id,
+                            rule_id,
+                            f.severity,
+                            f.category,
+                            file_path,
+                            line_number,
+                            None,
+                            scanner,
+                            message,
+                            pkg_name,
+                            pkg_version,
+                        )
+                    )
+
+                if rows:
+                    await db.executemany(
+                        "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        rows,
+                    )
+                await db.execute(
+                    "UPDATE jobs SET status = 'completed' WHERE job_id = ?", (job_id,)
+                )
+                await db.commit()
+            finally:
+                await db.close()
+        except Exception:
+            logger.exception("Failed repo scan task for job %s", job_id)
+            db = await get_db()
+            try:
+                await db.execute(
+                    "UPDATE jobs SET status = 'failed' WHERE job_id = ?", (job_id,)
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+
+async def _run_org_batch(org_job_id: str, repos: List[dict]):
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE org_jobs SET status = 'scanning' WHERE id = ?", (org_job_id,)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    sem = asyncio.Semaphore(5)
+    tasks = []
+
+    for r in repos:
+        repo_url = r["html_url"]
+        ref = r["default_branch"]
+        project_name = r["name"]
+        job_id = next(tempfile._get_candidate_names())
+
+        db = await get_db()
+        try:
+            await db.execute(
+                "INSERT INTO jobs (job_id, project_name, scan_method, org_job_id, status) VALUES (?, ?, ?, ?, ?)",
+                (job_id, project_name, "org_batch", org_job_id, "pending"),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        tasks.append(
+            _run_repo_scan_task(sem, job_id, repo_url, ref, project_name, org_job_id)
+        )
+
+    await asyncio.gather(*tasks)
+
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE org_jobs SET status = 'completed' WHERE id = ?", (org_job_id,)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+@app.post("/api/scans/org")
+async def scan_org(req: OrgScanRequest, background_tasks: BackgroundTasks):
+    m = re.match(
+        r"^https?://github\.com/([^/]+)/?$", req.org_url.strip(), re.IGNORECASE
+    )
+    if not m:
+        raise HTTPException(status_code=400, detail="Invalid GitHub Organization URL")
+    org_name = m.group(1)
+
+    repos = await fetch_org_repos(org_name)
+    if not repos:
+        raise HTTPException(
+            status_code=400, detail="No public repositories found for this organization"
+        )
+
+    org_job_id = str(uuid.uuid4())
+
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO org_jobs (id, org_name, status) VALUES (?, ?, ?)",
+            (org_job_id, org_name, "pending"),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    background_tasks.add_task(_run_org_batch, org_job_id, repos)
+
+    return {"org_job_id": org_job_id, "org_name": org_name, "repo_count": len(repos)}
+
+
+@app.get("/api/scans/org/{org_job_id}/status", response_model=OrgJobStatusResponse)
+async def get_org_status(org_job_id: str):
+    db = await get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT status FROM org_jobs WHERE id = ?", (org_job_id,)
+        )
+        org_row = await cur.fetchone()
+        if not org_row:
+            raise HTTPException(status_code=404, detail="Org job not found")
+
+        cur = await db.execute(
+            "SELECT job_id, project_name, status FROM jobs WHERE org_job_id = ?",
+            (org_job_id,),
+        )
+        job_rows = await cur.fetchall()
+    finally:
+        await db.close()
+
+    repos = [
+        RepoStatus(
+            job_id=r["job_id"], project_name=r["project_name"], status=r["status"]
+        )
+        for r in job_rows
+    ]
+
+    return OrgJobStatusResponse(
+        org_job_id=org_job_id, status=org_row["status"], repos=repos
+    )
