@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Building2, ShieldAlert, CheckCircle, XCircle, Filter, Download, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Building2, ShieldAlert, CheckCircle, XCircle, Filter, Download, Loader2, ChevronLeft, ChevronRight, Network } from "lucide-react";
 import { getOrgSummary, getOrgFindings, downloadOrgAuditReport } from "../lib/api";
 import { saveBlob } from "../lib/download";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
+import { BlastRadiusGraph } from "../components/blast-radius-graph";
 
 const getSeverityColor = (sev: string) => {
   switch (sev?.toLowerCase()) {
@@ -27,9 +28,9 @@ export function OrgFindings() {
   const [exporting, setExporting] = useState(false);
   const [repoFilter, setRepoFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+  const [showGraph, setShowGraph] = useState(false);
   const itemsPerPage = 50;
 
-  // Reset to page 1 whenever the filter changes
   useEffect(() => {
     setCurrentPage(1);
   }, [repoFilter]);
@@ -114,26 +115,42 @@ export function OrgFindings() {
           </div>
         </div>
         
-        <Button 
-          onClick={handleExportPDF} 
-          disabled={exporting}
-          className="shadow-sm transition-all cursor-pointer"
-        >
-          {exporting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating PDF...
-            </>
-          ) : (
-            <>
-              <Download className="mr-2 h-4 w-4" />
-              Export Report
-            </>
-          )}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline"
+            onClick={() => setShowGraph(!showGraph)}
+            className="shadow-sm transition-all cursor-pointer border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
+          >
+            <Network className="mr-2 h-4 w-4" />
+            {showGraph ? "Hide Blast Radius" : "Visualize Blast Radius"}
+          </Button>
+
+          <Button 
+            onClick={handleExportPDF} 
+            disabled={exporting}
+            className="shadow-sm transition-all cursor-pointer"
+          >
+            {exporting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Export Report
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
-      {/* KPI Scorecards */}
+      {showGraph && (
+        <div className="mb-8 w-full animate-in fade-in slide-in-from-top-4 duration-500">
+          <BlastRadiusGraph orgJobId={orgJobId!} />
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <Card className="bg-muted/30 border-border/50">
           <CardContent className="p-6 flex items-center gap-4">
@@ -196,7 +213,6 @@ export function OrgFindings() {
           </CardContent>
         </Card>
 
-        {/* Severity Distribution */}
         <Card className="shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg">Severity Breakdown</CardTitle>

@@ -305,3 +305,13 @@ export async function downloadOrgAuditReport(orgJobId: string) {
 
   return { blob, filename };
 }
+
+export const getOrgBlastRadius = async (orgJobId: string) => {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const response = await fetch(`${baseUrl}/api/scans/org/${orgJobId}/blast-radius`);
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch blast radius data');
+  }
+  return response.json();
+};
