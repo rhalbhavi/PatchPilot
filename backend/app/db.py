@@ -60,6 +60,16 @@ async def init_db():
                 last_updated TEXT DEFAULT (datetime('now'))
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS dependency_links (
+                id TEXT PRIMARY KEY,
+                org_job_id TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                package_name TEXT NOT NULL,
+                package_version TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
 
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("PRAGMA table_info(findings)")
@@ -71,6 +81,7 @@ async def init_db():
 
         cursor = await db.execute("PRAGMA table_info(jobs)")
         job_columns = [row["name"] for row in await cursor.fetchall()]
+
         if "org_job_id" not in job_columns:
             await db.execute("ALTER TABLE jobs ADD COLUMN org_job_id TEXT")
         if "status" not in job_columns:

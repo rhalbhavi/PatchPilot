@@ -122,6 +122,47 @@ def _prioritize_findings(findings: List[Finding]) -> List[Finding]:
     return sorted(findings, key=score, reverse=True)
 
 
+def _extract_dependencies(repo_dir: Path) -> List[tuple[str, str]]:
+    """
+    Lightweight parser to extract dependencies from common manifests.
+    Currently supports package.json (Node) and requirements.txt (Python).
+    Returns a list of (package_name, version) tuples.
+    """
+    deps = []
+    pkg_json_path = repo_dir / "package.json"
+    if pkg_json_path.exists():
+        try:
+            data = json.loads(pkg_json_path.read_text(encoding="utf-8"))
+
+            all_deps = {
+                **data.get("dependencies", {}),
+                **data.get("devDependencies", {}),
+            }
+            for name, version in all_deps.items():
+                deps.append((name, str(version)))
+        except Exception as e:
+            logger.warning("Failed to parse package.json in %s: %s", repo_dir, e)
+
+    req_txt_path = repo_dir / "requirements.txt"
+    if req_txt_path.exists():
+        try:
+            lines = req_txt_path.read_text(encoding="utf-8").splitlines()
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                match = re.match(r"^([a-zA-Z0-9\-_]+)(?:[=<>~]+(.*))?$", line)
+                if match:
+                    name = match.group(1)
+                    version = match.group(2) or "unknown"
+                    deps.append((name, version))
+        except Exception as e:
+            logger.warning("Failed to parse requirements.txt in %s: %s", repo_dir, e)
+
+    return deps
+
+
 def _scan_repo_dir(repo_dir: Path):
     semgrep = run_semgrep(repo_dir)
     osv = run_osv_scanner(repo_dir)
@@ -847,6 +888,8 @@ async def _run_repo_scan_task(
             scan_root = _maybe_use_single_top_folder(repo_dir)
             semgrep, osv, gitleaks, entropy, findings = _scan_repo_dir(scan_root)
 
+            deps = _extract_dependencies(scan_root)
+
             db = await get_db()
             try:
                 rows = []
@@ -888,6 +931,19 @@ async def _run_repo_scan_task(
                         "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         rows,
                     )
+
+                dep_rows = []
+                for pkg_n, pkg_v in deps:
+                    dep_rows.append(
+                        (str(uuid.uuid4()), org_job_id, project_name, pkg_n, pkg_v)
+                    )
+
+                if dep_rows:
+                    await db.executemany(
+                        "INSERT INTO dependency_links (id, org_job_id, project_name, package_name, package_version) VALUES (?, ?, ?, ?, ?)",
+                        dep_rows,
+                    )
+
                 await db.execute(
                     "UPDATE jobs SET status = 'completed' WHERE job_id = ?", (job_id,)
                 )
@@ -1308,3 +1364,49 @@ async def download_org_audit_pdf(org_job_id: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/scans/org/{org_job_id}/blast-radius", tags=["Organization"])
+async def get_blast_radius(org_job_id: str):
+    db = await get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT id FROM org_jobs WHERE id = ?", (org_job_id,))
+        if not await cur.fetchone():
+            raise HTTPException(status_code=404, detail="Organization job not found")
+
+        cur = await db.execute(
+            "SELECT project_name, package_name FROM dependency_links WHERE org_job_id = ?",
+            (org_job_id,),
+        )
+        edges = await cur.fetchall()
+        cur = await db.execute(
+            """
+            SELECT DISTINCT f.package_name 
+            FROM findings f
+            JOIN jobs j ON f.job_id = j.job_id
+            WHERE j.org_job_id = ? AND f.category = 'dependency' AND f.package_name IS NOT NULL
+            """,
+            (org_job_id,),
+        )
+        vulnerable_pkgs = {row["package_name"] for row in await cur.fetchall()}
+
+    finally:
+        await db.close()
+
+    nodes_dict = {}
+    links = []
+
+    for edge in edges:
+        repo = edge["project_name"]
+        pkg = edge["package_name"]
+        if repo not in nodes_dict:
+            nodes_dict[repo] = {"id": repo, "type": "repo", "vulnerable": False}
+
+        if pkg not in nodes_dict:
+            is_vuln = pkg in vulnerable_pkgs
+            nodes_dict[pkg] = {"id": pkg, "type": "package", "vulnerable": is_vuln}
+
+        links.append({"source": repo, "target": pkg})
+
+    return {"nodes": list(nodes_dict.values()), "links": links}

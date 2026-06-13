@@ -238,3 +238,24 @@ def test_download_org_audit_pdf(mock_get_db, mock_generate_pdf, client):
     called_args = mock_generate_pdf.call_args[0]
     assert called_args[0] == "123"
     assert called_args[1] == "AcmeCorp"
+
+
+def test_extract_dependencies(tmp_path):
+    from app.main import _extract_dependencies
+
+    pkg_json = tmp_path / "package.json"
+    pkg_json.write_text(
+        '{"dependencies": {"react": "^18.0.0"}, "devDependencies": {"vite": "4.0.0"}}',
+        encoding="utf-8",
+    )
+
+    req_txt = tmp_path / "requirements.txt"
+    req_txt.write_text("fastapi==0.95.0\n\npydantic>=1.10", encoding="utf-8")
+
+    deps = _extract_dependencies(tmp_path)
+
+    assert len(deps) == 4
+    assert ("react", "^18.0.0") in deps
+    assert ("vite", "4.0.0") in deps
+    assert ("fastapi", "0.95.0") in deps
+    assert ("pydantic", "1.10") in deps
