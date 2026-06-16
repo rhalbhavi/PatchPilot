@@ -25,6 +25,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
@@ -163,10 +164,28 @@ def _extract_dependencies(repo_dir: Path) -> List[tuple[str, str]]:
     return deps
 
 
-def _scan_repo_dir(repo_dir: Path):
+ACTIVE_SCANS = {}
+
+
+def _scan_repo_dir(repo_dir: Path, progress_cb=None):
+    if progress_cb:
+        progress_cb("sast", "in_progress")
     semgrep = run_semgrep(repo_dir)
+    if progress_cb:
+        progress_cb("sast", "completed")
+
+    if progress_cb:
+        progress_cb("dependency", "in_progress")
     osv = run_osv_scanner(repo_dir)
+    if progress_cb:
+        progress_cb("dependency", "completed")
+
+    if progress_cb:
+        progress_cb("secrets", "in_progress")
     gitleaks = run_gitleaks(repo_dir)
+    if progress_cb:
+        progress_cb("secrets", "completed")
+
     entropy = run_entropy(repo_dir)
 
     findings: List[Finding] = []
@@ -320,144 +339,37 @@ def _maybe_use_single_top_folder(repo_dir: Path) -> Path:
     return repo_dir
 
 
-@app.post("/scan", response_model=ScanResponse)
-async def scan(
-    request: Request,
-    project: UploadFile = File(...),
-    project_name: str = Form("project"),
+async def _run_single_scan_task(
+    job_id: str, project_name: str, scan_method: str, scan_root: Path
 ):
-    content_length = request.headers.get("content-length")
+    def update_progress(phase, status):
+        if job_id in ACTIVE_SCANS:
+            ACTIVE_SCANS[job_id][phase] = status
 
-    try:
-        content_length = int(content_length) if content_length else None
-    except ValueError:
-        content_length = None
-
-    if content_length and content_length > MAX_UPLOAD_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Maximum upload size is {MAX_UPLOAD_MB}MB.",
-        )
-
-    job_id = next(tempfile._get_candidate_names())
-    job_dir = WORK_ROOT / job_id
-    ensure_dir(job_dir)
-
-    archive_path = job_dir / project.filename
-    content = await project.read()
-    archive_path.write_bytes(content)
-
-    repo_dir = job_dir / "repo"
-    ensure_dir(repo_dir)
-
-    try:
-        unzip_to_dir(archive_path, repo_dir)
-    except Exception as e:
-        safe_rmtree(job_dir)
-        raise HTTPException(status_code=400, detail=f"Invalid zip upload: {e}")
-
-    scan_root = _maybe_use_single_top_folder(repo_dir)
-
-    semgrep, osv, gitleaks, entropy, findings = _scan_repo_dir(scan_root)
-
-    try:
-        async with await get_db() as db:
-            await db.execute(
-                "INSERT INTO jobs (job_id, project_name, scan_method) VALUES (?, ?, ?)",
-                (job_id, project_name, "zip"),
-            )
-            rows = []
-            for f in findings:
-                engine = (f.metadata or {}).get("engine")
-                scanner = {"osv-scanner": "osv"}.get(engine, engine)
-                rule_id = (
-                    (f.metadata or {}).get("check_id")
-                    or (f.metadata or {}).get("rule")
-                    or (f.metadata or {}).get("osv_id")
-                    or f.title
-                )
-                file_path = f.location.path if f.location else None
-                line_number = f.location.start_line if f.location else None
-                message = f.description or f.title
-
-                pkg_info = (f.metadata or {}).get("package") or {}
-                pkg_name = pkg_info.get("name")
-                pkg_version = pkg_info.get("version")
-
-                rows.append(
-                    (
-                        str(uuid.uuid4()),
-                        job_id,
-                        rule_id,
-                        f.severity,
-                        f.category,
-                        file_path,
-                        line_number,
-                        None,
-                        scanner,
-                        message,
-                        pkg_name,
-                        pkg_version,
-                    )
-                )
-            await db.executemany(
-                "INSERT INTO findings (id, job_id, rule_id, severity, category, file_path, line_number, cwe, scanner, message, package_name, package_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
-            await db.commit()
-    except Exception:
-        logger.exception("DB write failed for job %s", job_id)
-    return ScanResponse(
-        job_id=job_id,
-        project_name=project_name,
-        repo_path=str(scan_root),
-        findings=findings,
-        scanners={
-            "semgrep": {"ok": True, "count": len(semgrep)},
-            "osv": {"ok": True, "count": len(osv)},
-            "gitleaks": {"ok": True, "count": len(gitleaks)},
-            "entropy": {"ok": True, "count": len(entropy)},
-        },
-    )
-
-
-@app.post("/scan-url", response_model=ScanResponse)
-async def scan_url(
-    repo_url: str = Form(...),
-    ref: str = Form("main"),
-    project_name: str = Form("project"),
-):
-    job_id = next(tempfile._get_candidate_names())
-    job_dir = WORK_ROOT / job_id
-    ensure_dir(job_dir)
-
-    archive_path = job_dir / "repo.zip"
-    repo_dir = job_dir / "repo"
-    ensure_dir(repo_dir)
-
-    zip_url = github_zip_url(repo_url, ref=ref)
-
-    try:
-        await download_to_path(zip_url, archive_path)
-        unzip_to_dir(archive_path, repo_dir)
-    except HTTPException:
-        safe_rmtree(job_dir)
-        raise
-    except Exception as e:
-        safe_rmtree(job_dir)
-        raise HTTPException(status_code=400, detail=f"Import from URL failed: {e}")
-
-    scan_root = _maybe_use_single_top_folder(repo_dir)
-
-    semgrep, osv, gitleaks, entropy, findings = _scan_repo_dir(scan_root)
+    ACTIVE_SCANS[job_id] = {
+        "sast": "pending",
+        "dependency": "pending",
+        "secrets": "pending",
+        "status": "running",
+    }
 
     try:
         db = await get_db()
         try:
             await db.execute(
                 "INSERT INTO jobs (job_id, project_name, scan_method) VALUES (?, ?, ?)",
-                (job_id, project_name, "url"),
+                (job_id, project_name, scan_method),
             )
+            await db.commit()
+        finally:
+            await db.close()
+
+        semgrep, osv, gitleaks, entropy, findings = await run_in_threadpool(
+            _scan_repo_dir, scan_root, update_progress
+        )
+
+        db = await get_db()
+        try:
             rows = []
             for f in findings:
                 engine = (f.metadata or {}).get("engine")
@@ -471,11 +383,9 @@ async def scan_url(
                 file_path = f.location.path if f.location else None
                 line_number = f.location.start_line if f.location else None
                 message = f.description or f.title
-
                 pkg_info = (f.metadata or {}).get("package") or {}
                 pkg_name = pkg_info.get("name")
                 pkg_version = pkg_info.get("version")
-
                 rows.append(
                     (
                         str(uuid.uuid4()),
@@ -500,21 +410,103 @@ async def scan_url(
             await db.commit()
         finally:
             await db.close()
-    except Exception:
-        logger.exception("DB write failed for job %s", job_id)
 
-    return ScanResponse(
-        job_id=job_id,
-        project_name=project_name,
-        repo_path=str(scan_root),
-        findings=findings,
-        scanners={
-            "semgrep": {"ok": True, "count": len(semgrep)},
-            "osv": {"ok": True, "count": len(osv)},
-            "gitleaks": {"ok": True, "count": len(gitleaks)},
-            "entropy": {"ok": True, "count": len(entropy)},
-        },
+        if job_id in ACTIVE_SCANS:
+            ACTIVE_SCANS[job_id]["status"] = "completed"
+            ACTIVE_SCANS[job_id]["findings_count"] = len(findings)
+    except Exception:
+        logger.exception("Failed scan task for %s", job_id)
+        if job_id in ACTIVE_SCANS:
+            ACTIVE_SCANS[job_id]["status"] = "failed"
+
+
+@app.post("/scan")
+async def scan(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    project: UploadFile = File(...),
+    project_name: str = Form("project"),
+):
+    content_length = request.headers.get("content-length")
+    try:
+        content_length = int(content_length) if content_length else None
+    except ValueError:
+        content_length = None
+
+    if content_length and content_length > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum upload size is {MAX_UPLOAD_MB}MB.",
+        )
+
+    job_id = next(tempfile._get_candidate_names())
+    job_dir = WORK_ROOT / job_id
+    ensure_dir(job_dir)
+    archive_path = job_dir / project.filename
+    content = await project.read()
+    archive_path.write_bytes(content)
+    repo_dir = job_dir / "repo"
+    ensure_dir(repo_dir)
+
+    try:
+        unzip_to_dir(archive_path, repo_dir)
+    except Exception as e:
+        safe_rmtree(job_dir)
+        raise HTTPException(status_code=400, detail=f"Invalid zip upload: {e}")
+
+    scan_root = _maybe_use_single_top_folder(repo_dir)
+    background_tasks.add_task(
+        _run_single_scan_task, job_id, project_name, "zip", scan_root
     )
+    return {"job_id": job_id, "project_name": project_name, "status": "running"}
+
+
+@app.post("/scan-url")
+async def scan_url(
+    background_tasks: BackgroundTasks,
+    repo_url: str = Form(...),
+    ref: str = Form("main"),
+    project_name: str = Form("project"),
+):
+    job_id = next(tempfile._get_candidate_names())
+    job_dir = WORK_ROOT / job_id
+    ensure_dir(job_dir)
+    archive_path = job_dir / "repo.zip"
+    repo_dir = job_dir / "repo"
+    ensure_dir(repo_dir)
+    zip_url = github_zip_url(repo_url, ref=ref)
+
+    try:
+        await download_to_path(zip_url, archive_path)
+        unzip_to_dir(archive_path, repo_dir)
+    except HTTPException:
+        safe_rmtree(job_dir)
+        raise
+    except Exception as e:
+        safe_rmtree(job_dir)
+        raise HTTPException(status_code=400, detail=f"Import from URL failed: {e}")
+
+    scan_root = _maybe_use_single_top_folder(repo_dir)
+    background_tasks.add_task(
+        _run_single_scan_task, job_id, project_name, "url", scan_root
+    )
+    return {"job_id": job_id, "project_name": project_name, "status": "running"}
+
+
+@app.get("/api/scans/{job_id}/stream")
+async def stream_single_scan_status(job_id: str):
+    async def event_generator():
+        while True:
+            if job_id not in ACTIVE_SCANS:
+                yield f"data: {json.dumps({'error': 'Job not found'})}\n\n"
+                break
+            state = ACTIVE_SCANS[job_id]
+            yield f"data: {json.dumps(state)}\n\n"
+            if state["status"] in ["completed", "failed"]:
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/fix", response_model=FixResponse)

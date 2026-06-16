@@ -58,12 +58,21 @@ def test_scan_url_timeout(mock_async_client):
 @patch("app.main.download_to_path", new_callable=AsyncMock)
 @patch("app.main.unzip_to_dir")
 @patch("app.main._scan_repo_dir")
-def test_scan_url_success(mock_scan, mock_unzip, mock_download, mock_async_client):
+@patch("app.main.get_db")
+def test_scan_url_success(
+    mock_get_db, mock_scan, mock_unzip, mock_download, mock_async_client
+):
     mock_client = AsyncMock()
     mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
     mock_async_client.return_value.__aexit__ = AsyncMock(return_value=None)
     mock_response = httpx.Response(200)
     mock_client.head = AsyncMock(return_value=mock_response)
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock()
+    mock_db.executemany = AsyncMock()
+    mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_db.__aexit__ = AsyncMock(return_value=False)
+    mock_get_db.return_value = mock_db
 
     mock_scan.return_value = ([], [], [], [], [])
 
@@ -75,4 +84,7 @@ def test_scan_url_success(mock_scan, mock_unzip, mock_download, mock_async_clien
         },
     )
     assert res.status_code == 200
-    assert res.json()["project_name"] == "test_project"
+    data = res.json()
+    assert data["project_name"] == "test_project"
+    assert data["status"] == "running"
+    assert "job_id" in data
