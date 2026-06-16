@@ -76,9 +76,27 @@ MAX_UPLOAD_SIZE = MAX_UPLOAD_MB * 1024 * 1024
 logger = logging.getLogger(__name__)
 app = FastAPI(title="PatchPilot API", version="0.1.0")
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+env_origins = os.environ.get("ALLOWED_ORIGINS") or os.environ.get(
+    "VITE_API_BASE_URL", ""
+)
+if env_origins:
+    for origin in env_origins.split(","):
+        cleaned_origin = origin.strip()
+        if cleaned_origin:
+            if cleaned_origin.endswith("/"):
+                cleaned_origin = cleaned_origin.rstrip("/")
+            ALLOWED_ORIGINS.append(cleaned_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
