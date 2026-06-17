@@ -271,6 +271,7 @@ async def download_to_path(url: str, dest_path: Path, max_retries: int = 5) -> N
     """
     Download *url* to *dest_path*, following redirects only to hosts in
     ALLOWED_REDIRECT_HOSTS. Implements exponential backoff for GitHub rate limits.
+    Now securely streams the download to prevent RAM/Disk exhaustion.
     """
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     timeout = httpx.Timeout(120.0, connect=30.0)
@@ -279,6 +280,8 @@ async def download_to_path(url: str, dest_path: Path, max_retries: int = 5) -> N
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         for attempt in range(max_retries):
             current_url = url
+            status_code_for_retry = None
+
             try:
                 for _ in range(MAX_REDIRECTS):
                     parsed = httpx.URL(current_url)
@@ -287,32 +290,42 @@ async def download_to_path(url: str, dest_path: Path, max_retries: int = 5) -> N
                             status_code=400,
                             detail=f"Redirect to disallowed host '{parsed.host}' was blocked.",
                         )
+                    async with client.stream("GET", current_url) as r:
+                        if r.status_code in (301, 302, 303, 307, 308):
+                            location = r.headers.get("location")
+                            if not location:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail="Redirect missing Location header.",
+                                )
+                            current_url = str(location)
+                            continue
 
-                    r = await client.get(current_url)
+                        if r.status_code in (403, 429):
+                            status_code_for_retry = r.status_code
+                            break
 
-                    if r.status_code in (301, 302, 303, 307, 308):
-                        location = r.headers.get("location")
-                        if not location:
+                        if r.status_code != 200:
                             raise HTTPException(
                                 status_code=400,
-                                detail="Redirect missing Location header.",
+                                detail=f"Failed to download repo ZIP ({r.status_code}).",
                             )
-                        current_url = str(location)
-                        continue
+                        bytes_received = 0
+                        chunk_size = 1024 * 1024
 
-                    if r.status_code in (403, 429):
-                        break
+                        with open(dest_path, "wb") as f:
+                            async for chunk in r.aiter_bytes(chunk_size=chunk_size):
+                                bytes_received += len(chunk)
+                                if bytes_received > MAX_UPLOAD_SIZE:
+                                    dest_path.unlink(missing_ok=True)
+                                    raise HTTPException(
+                                        status_code=413,
+                                        detail=f"Remote repository exceeds the maximum limit of {MAX_UPLOAD_MB}MB.",
+                                    )
+                                f.write(chunk)
+                        return
 
-                    if r.status_code != 200:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Failed to download repo ZIP ({r.status_code}).",
-                        )
-
-                    dest_path.write_bytes(r.content)
-                    return
-
-                if r.status_code in (403, 429):
+                if status_code_for_retry in (403, 429):
                     if attempt == max_retries - 1:
                         raise HTTPException(
                             status_code=429,
@@ -322,7 +335,7 @@ async def download_to_path(url: str, dest_path: Path, max_retries: int = 5) -> N
                     jitter = random.uniform(0.5, 1.5)
                     sleep_time = (base_delay * (2**attempt)) + jitter
                     logger.warning(
-                        f"Rate limited (status {r.status_code}) on {url}. Retrying in {sleep_time:.2f}s..."
+                        f"Rate limited (status {status_code_for_retry}) on {url}. Retrying in {sleep_time:.2f}s..."
                     )
                     await asyncio.sleep(sleep_time)
                     continue
