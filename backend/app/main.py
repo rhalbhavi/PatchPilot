@@ -875,13 +875,19 @@ async def fetch_org_repos(org_name: str) -> List[dict]:
     token = os.environ.get("GITHUB_PAT")
     if token:
         headers["Authorization"] = f"token {token}"
+    timeout = httpx.Timeout(30.0, connect=10.0)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=headers, follow_redirects=True)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to fetch org repos")
-        repos = resp.json()
-        return [r for r in repos if not r.get("archived")][:20]
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers, follow_redirects=True)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=400, detail="Failed to fetch org repos")
+            repos = resp.json()
+            return [r for r in repos if not r.get("archived")][:20]
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=504, detail=f"GitHub API request failed or timed out: {e}"
+        )
 
 
 async def _run_repo_scan_task(
