@@ -814,7 +814,7 @@ async def get_findings(job_id: str):
         await db.close()
 
     findings = [dict(zip(columns, row)) for row in rows]
-    
+
     if raw_finding_count is None:
         raw_finding_count = len(findings)
     if finding_count is None:

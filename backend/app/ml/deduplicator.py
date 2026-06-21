@@ -2,11 +2,13 @@ from typing import Any, List
 
 try:
     from sentence_transformers import SentenceTransformer
+
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except Exception:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 _MODEL = None
+
 
 def get_model():
     global _MODEL
@@ -17,9 +19,10 @@ def get_model():
         _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
     return _MODEL
 
+
 def deduplicate(findings: List[Any], epsilon: float = 0.15) -> List[Any]:
     """
-    Deduplicates a list of findings (can be Finding objects or dicts) 
+    Deduplicates a list of findings (can be Finding objects or dicts)
     using sentence embeddings cosine similarity.
     If sentence-transformers is not available, returns the original list.
     """
@@ -38,7 +41,7 @@ def deduplicate(findings: List[Any], epsilon: float = 0.15) -> List[Any]:
         else:
             desc = getattr(f, "description", "") or ""
             title = getattr(f, "title", "") or ""
-        
+
         desc_str = str(desc).strip()
         title_str = str(title).strip()
         text = desc_str if desc_str else title_str
@@ -46,11 +49,15 @@ def deduplicate(findings: List[Any], epsilon: float = 0.15) -> List[Any]:
 
     try:
         import numpy as np
+
         embeddings = model.encode(texts, convert_to_numpy=True)
     except Exception as e:
         # If encoding fails (e.g. system issues or package issues), fallback gracefully
         import logging
-        logging.getLogger(__name__).warning(f"Embedding encoding failed for deduplication: {e}")
+
+        logging.getLogger(__name__).warning(
+            f"Embedding encoding failed for deduplication: {e}"
+        )
         return findings
 
     # Normalize embeddings to unit vectors for easy cosine similarity computation
