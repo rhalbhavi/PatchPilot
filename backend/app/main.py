@@ -30,8 +30,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.ml.ranker import load_ranker, scoring_function
 from app.ml.deduplicator import SENTENCE_TRANSFORMERS_AVAILABLE, deduplicate
+from app.ml.ranker import load_ranker, scoring_function
 
 from .db import (
     get_cwe_distribution,

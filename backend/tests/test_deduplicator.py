@@ -1,11 +1,13 @@
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi.testclient import TestClient
 
-from app.models import Finding
 from app.main import app
 from app.ml import deduplicator
+from app.models import Finding
+
 
 # Helper to create dummy Finding object
 def make_finding(id_, title, desc):
