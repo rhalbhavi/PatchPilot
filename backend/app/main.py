@@ -134,6 +134,41 @@ def health():
     }
 
 
+@app.get("/api/health/ollama", tags=["Health"])
+async def ollama_health():
+    """
+    Ping the local Ollama service to verify availability and list installed models.
+    Fails gracefully to prevent 500 errors if the service is down.
+    """
+    base_url = "http://localhost:11434"
+    timeout = httpx.Timeout(3.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(f"{base_url}/api/tags")
+
+            if response.status_code == 200:
+                data = response.json()
+                models = [model.get("name") for model in data.get("models", [])]
+                return {
+                    "available": True,
+                    "models": models,
+                    "base_url": base_url,
+                }
+            else:
+                return {
+                    "available": False,
+                    "models": [],
+                    "base_url": base_url,
+                }
+    except Exception as e:
+        logger.warning(f"Ollama health check failed: {e}")
+        return {
+            "available": False,
+            "models": [],
+            "base_url": base_url,
+        }
+
+
 def _prioritize_findings(findings: List[Finding]) -> List[Finding]:
     def score(f: Finding) -> int:
         sev = {"CRITICAL": 100, "HIGH": 80, "MEDIUM": 50, "LOW": 20, "INFO": 5}.get(
