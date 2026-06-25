@@ -130,6 +130,10 @@ PatchPilot/
 └── LICENSE
 ```
 
+## Architecture
+
+Want to understand how the internal components communicate? Check out the [ARCHITECTURE.md](ARCHITECTURE.md) document for Mermaid diagrams and details on the Scan, Fix, and Verify pipelines, database schema, and ML roadmap flow.
+
 ---
 
 ## Contributing
