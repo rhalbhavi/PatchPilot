@@ -14,7 +14,7 @@ def test_label_finding_success():
     mock_cursor.fetchone.return_value = {"id": "fake-finding-123"}
     mock_db.execute.return_value = mock_cursor
 
-    with patch("app.main.get_db", return_value=mock_db):
+    with patch("app.main.get_db", AsyncMock(return_value=mock_db)):
         response = client.post(
             "/findings/fake-finding-123/label", json={"false_positive": True}
         )
