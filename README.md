@@ -144,6 +144,22 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, branch conventio
 
 For questions and ideas, open a [Discussion](https://github.com/ionfwsrijan/PatchPilot/discussions) rather than an issue.
 
+## Mentors
+
+Special thanks to the mentors helping guide contributors and review changes.
+
+- <img src="https://github.com/ionfwsrijan.png?size=40" width="40" height="40" alt="@ionfwsrijan"/> @ionfwsrijan
+- <img src="https://github.com/arpit2006.png?size=40" width="40" height="40" alt="@arpit2006"/> @arpit2006
+
+
+## Contributors
+
+Thanks to all our contributors ❤️
+
+<a href="https://github.com/ionfwsrijan/PatchPilot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=ionfwsrijan/PatchPilot" />
+</a>
+
 ## Security
 
 Found a vulnerability in PatchPilot itself? Please **do not** open a public issue. Read [SECURITY.md](SECURITY.md) for the responsible disclosure process.
