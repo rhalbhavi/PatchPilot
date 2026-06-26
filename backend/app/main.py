@@ -226,7 +226,12 @@ ACTIVE_SCANS = {}
 ORG_CANCEL_EVENTS = {}
 
 
-def _scan_repo_dir(repo_dir: Path, progress_cb=None, job_dir: Path = None, cancel_event: asyncio.Event = None):
+def _scan_repo_dir(
+    repo_dir: Path,
+    progress_cb=None,
+    job_dir: Path = None,
+    cancel_event: asyncio.Event = None,
+):
     if cancel_event and cancel_event.is_set():
         raise asyncio.CancelledError()
 
@@ -333,7 +338,9 @@ ALLOWED_REDIRECT_HOSTS = {
 MAX_REDIRECTS = 5
 
 
-async def download_to_path(url: str, dest_path: Path, max_retries: int = 5, cancel_event: asyncio.Event = None) -> None:
+async def download_to_path(
+    url: str, dest_path: Path, max_retries: int = 5, cancel_event: asyncio.Event = None
+) -> None:
     """
     Download *url* to *dest_path*, following redirects only to hosts in
     ALLOWED_REDIRECT_HOSTS. Implements exponential backoff for GitHub rate limits.
@@ -1173,14 +1180,19 @@ async def _run_repo_scan_task(
             await download_to_path(zip_url, archive_path, cancel_event=cancel_event)
             if cancel_event and cancel_event.is_set():
                 raise asyncio.CancelledError()
-            
+
             unzip_to_dir(archive_path, repo_dir)
             if cancel_event and cancel_event.is_set():
                 raise asyncio.CancelledError()
 
             scan_root = _maybe_use_single_top_folder(repo_dir)
             semgrep, osv, gitleaks, entropy, findings = await run_in_threadpool(
-                functools.partial(_scan_repo_dir, scan_root, job_dir=job_dir, cancel_event=cancel_event)
+                functools.partial(
+                    _scan_repo_dir,
+                    scan_root,
+                    job_dir=job_dir,
+                    cancel_event=cancel_event,
+                )
             )
 
             raw_finding_count = len(findings)
@@ -1290,9 +1302,11 @@ async def _run_org_batch(org_job_id: str, repos: List[dict]):
 
     db = await get_db()
     try:
-        cur = await db.execute("SELECT status FROM org_jobs WHERE id = ?", (org_job_id,))
+        cur = await db.execute(
+            "SELECT status FROM org_jobs WHERE id = ?", (org_job_id,)
+        )
         row = await cur.fetchone()
-        if row and row[0] == 'aborted':
+        if row and row[0] == "aborted":
             ORG_CANCEL_EVENTS.pop(org_job_id, None)
             return
 
@@ -1323,14 +1337,20 @@ async def _run_org_batch(org_job_id: str, repos: List[dict]):
             await db.close()
 
         tasks.append(
-            asyncio.create_task(_run_repo_scan_task(sem, job_id, repo_url, ref, project_name, org_job_id, cancel_event))
+            asyncio.create_task(
+                _run_repo_scan_task(
+                    sem, job_id, repo_url, ref, project_name, org_job_id, cancel_event
+                )
+            )
         )
 
     cancel_task = asyncio.create_task(cancel_event.wait())
     wait_tasks = asyncio.create_task(asyncio.gather(*tasks, return_exceptions=True))
 
     try:
-        done, pending = await asyncio.wait([wait_tasks, cancel_task], return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(
+            [wait_tasks, cancel_task], return_when=asyncio.FIRST_COMPLETED
+        )
 
         if cancel_task in done:
             for t in tasks:
