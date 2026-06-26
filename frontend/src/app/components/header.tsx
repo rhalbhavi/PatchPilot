@@ -1,8 +1,55 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router";
 import { Moon, Sun, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { useTheme } from "./theme-provider";
 import { cn } from "./ui/utils";
+import { useOllamaStatus } from "../hooks/useOllamaStatus";
+
+function OllamaStatusIndicator() {
+  const { status, loading } = useOllamaStatus();
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  if (loading) return null;
+
+  const isConnected = status?.available;
+  const tooltipText = isConnected
+    ? `Ollama connected (${status.models.length > 0 ? status.models[0] : "no models loaded"})`
+    : "Ollama not running. Install Ollama and run: `ollama pull qwen2.5-coder:7b` to enable AI patches.";
+
+  return (
+    <div 
+      className="group relative flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-sm font-medium hover:bg-muted cursor-help transition-colors"
+      onClick={() => setShowTooltip(!showTooltip)}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <div className="relative flex h-2.5 w-2.5 items-center justify-center">
+        {isConnected ? (
+          <>
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-20"></span>
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+          </>
+        ) : (
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive"></span>
+        )}
+      </div>
+      <span className={isConnected ? "text-foreground" : "text-muted-foreground"}>
+        {isConnected ? "Ollama Connected" : "Ollama Offline"}
+      </span>
+
+      {/* Hover/Click Tooltip */}
+      <div 
+        className={cn(
+          "pointer-events-none absolute -bottom-2 right-0 translate-y-full w-64 rounded-md border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md transition-opacity z-50",
+          showTooltip ? "opacity-100" : "opacity-0"
+        )}
+      >
+        {tooltipText}
+      </div>
+    </div>
+  );
+}
 
 export function Header() {
   const { theme, toggleTheme } = useTheme();
@@ -63,7 +110,9 @@ export function Header() {
           </Link>
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-4">
+          <OllamaStatusIndicator />
+          
           <Button
             variant="ghost"
             size="sm"
@@ -79,7 +128,7 @@ export function Header() {
           </Button>
 
           <Link to="/">
-            <Button size="sm" className="ml-2">
+            <Button size="sm">
               New Scan
             </Button>
           </Link>
