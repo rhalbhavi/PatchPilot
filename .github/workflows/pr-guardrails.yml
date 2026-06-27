@@ -277,8 +277,27 @@ jobs:
                   console.log("Deleted warning comment.");
                 }
 
-                // 3. Ping maintainer for review — only once per PR
-                //    Check we haven't already posted the review-request comment
+                // 3. Request review from maintainer — only once per PR
+                //    Re-requesting on every commit push would spam the reviewer,
+                //    so check if a review request for arpit2006 already exists.
+                const reviewRequests = await github.rest.pulls.listRequestedReviewers({
+                  ...repoInfo,
+                  pull_number: prNumber
+                });
+                const alreadyRequested = reviewRequests.data.users.some(
+                  u => u.login === 'arpit2006'
+                );
+
+                if (!alreadyRequested) {
+                  await github.rest.pulls.requestReviewers({
+                    ...repoInfo,
+                    pull_number: prNumber,
+                    reviewers: ['arpit2006']
+                  });
+                  console.log("Review requested from @arpit2006.");
+                }
+
+                // 4. Ping maintainer in comment — only once per PR
                 const alreadyPinged = comments.data.some(c =>
                   c.body.includes("✅ **PR template check passed**")
                 );
