@@ -950,22 +950,9 @@ async def get_findings(job_id: str):
         raw_finding_count = job_row.get("raw_finding_count")
         finding_count = job_row.get("finding_count")
 
-        cur = await db.execute(
-            """
-            SELECT id, rule_id, severity, category, file_path,
-                   line_number, cwe, scanner, message, package_name, package_version, created_at, ml_score, false_positive, labeled_at, version
-            FROM findings
-            WHERE job_id = ?
-            ORDER BY created_at
-            """,
-            (job_id,),
-        )
-        columns = [col[0] for col in cur.description]
-        rows = await cur.fetchall()
+        findings = await get_findings_by_job_id(db, job_id)
     finally:
         await db.close()
-
-    findings = [dict(row) for row in rows]
 
     if raw_finding_count is None:
         raw_finding_count = len(findings)

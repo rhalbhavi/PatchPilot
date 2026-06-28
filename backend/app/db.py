@@ -250,7 +250,7 @@ async def get_findings_by_job_id(db: aiosqlite.Connection, job_id: str) -> List[
         """
         SELECT id, job_id, rule_id, title, severity, category, file_path,
                line_number, cwe, scanner, message, package_name, package_version,
-               ml_score, features, status, created_at
+               ml_score, features, status, false_positive, labeled_at, version, created_at
         FROM findings
         WHERE job_id = ?
         ORDER BY created_at
@@ -284,7 +284,7 @@ async def get_finding(db: aiosqlite.Connection, finding_id: str) -> Optional[dic
         """
         SELECT id, job_id, rule_id, title, severity, category, file_path,
                line_number, cwe, scanner, message, package_name, package_version,
-               ml_score, features, status, created_at
+               ml_score, features, status, false_positive, labeled_at, version, created_at
         FROM findings
         WHERE id = ?
         """,
