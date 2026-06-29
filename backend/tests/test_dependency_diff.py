@@ -24,9 +24,15 @@ def test_dependency_diff_uses_scanner_identity_instead_of_category():
         ("old-job",),
     ]
 
-    class Row(dict):
+    class Row:
+        def __init__(self, data):
+            self._data = data
+
         def __getitem__(self, key):
-            return dict.__getitem__(self, key)
+            return self._data[key]
+
+        def keys(self):
+            return self._data.keys()
 
     # New job has an OSV finding but category is intentionally NOT canonical.
     osv_finding_new = Row(

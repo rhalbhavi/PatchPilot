@@ -240,7 +240,7 @@ async def get_dependency_diff():
             # Identity must be based on the scanner-specific identity, not on category.
             # Regression test provides an OSV finding with stable rule_id and package fields.
             # Use rule_id + package_name to keep matches consistent across scans.
-            return (f.get("rule_id"), f.get("package_name"), f.get("package_version"))
+            return (f["rule_id"], f["package_name"], f["package_version"])
 
         old_dict = {make_key(f): dict(f) for f in old_findings}
         new_dict = {make_key(f): dict(f) for f in new_findings}
