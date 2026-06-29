@@ -398,8 +398,6 @@ async def download_to_path(
                         try:
                             with open(dest_path, "wb") as f:
                                 async for chunk in r.aiter_bytes(chunk_size=chunk_size):
-                                    if cancel_event and cancel_event.is_set():
-                                        raise asyncio.CancelledError("Download aborted")
                                     bytes_received += len(chunk)
                                     if bytes_received > MAX_UPLOAD_SIZE:
                                         raise HTTPException(
@@ -407,8 +405,12 @@ async def download_to_path(
                                             detail=f"Remote repository exceeds the maximum limit of {MAX_UPLOAD_MB}MB.",
                                         )
                                     f.write(chunk)
-                        except BaseException:
-                            dest_path.unlink(missing_ok=True)
+                        except Exception:
+                            try:
+                                if dest_path.exists():
+                                    dest_path.unlink()
+                            except Exception:
+                                pass
                             raise
                         return
 
