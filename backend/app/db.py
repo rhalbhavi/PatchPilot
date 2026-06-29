@@ -41,7 +41,6 @@ async def init_db():
                 false_positive  INTEGER DEFAULT NULL,
                 labeled_at      TEXT DEFAULT NULL,
                 version         INTEGER DEFAULT 1,
-                status          TEXT DEFAULT 'open',
                 created_at      TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -119,6 +118,12 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE findings ADD COLUMN version INTEGER DEFAULT 1"
             )
+
+        if "title" not in columns:
+            await db.execute("ALTER TABLE findings ADD COLUMN title TEXT")
+
+        if "features" not in columns:
+            await db.execute("ALTER TABLE findings ADD COLUMN features TEXT")
 
         if "status" not in columns:
             await db.execute(
