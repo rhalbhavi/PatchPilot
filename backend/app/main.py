@@ -1118,7 +1118,54 @@ async def leaderboard_endpoint():
     return data
 
 
+<<<<<<< HEAD
 @app.post("/leaderboard/update")
+=======
+@app.get("/mentors/leaderboard", response_model=MentorLeaderboardResponse, tags=["Leaderboard"])
+async def get_mentor_leaderboard():
+    """
+    Reads mentor review stats from the database and returns a ranked leaderboard.
+    The database is populated by a scheduled GitHub Action that syncs data
+    from the GitHub API.
+    """
+    try:
+        db = await get_db()
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT github_username, reviews 
+            FROM mentor_stats
+            ORDER BY reviews DESC
+            """
+        )
+        rows = await cursor.fetchall()
+
+        leaderboard = [
+            MentorStat(rank=i + 1, username=row["github_username"], reviews=row["reviews"])
+            for i, row in enumerate(rows)
+        ]
+        return {"mentors": leaderboard}
+    except Exception:
+        logger.exception("Failed to fetch mentor leaderboard from database.")
+        return {"mentors": []}
+
+@app.get("/leaderboard", tags=["Leaderboard"])
+async def leaderboard_endpoint(sort: Optional[str] = "leaderboard_score", limit: Optional[int] = None):
+    """
+    Get contributor leaderboard stats.
+
+    - **sort**: `leaderboard_score` (default), `findings_closed`, `verified_fixes`, `verification_rate`.
+    - **limit**: Number of top contributors to return.
+    """
+    allowed_sort_fields = ["leaderboard_score", "findings_closed", "verified_fixes", "verification_rate"]
+    sort_by = sort if sort in allowed_sort_fields else "leaderboard_score"
+    
+    stats = await get_leaderboard_stats(sort_by=sort_by, limit=limit)
+    return {"contributors": stats}
+
+
+@app.post("/leaderboard/update", tags=["Leaderboard"])
+>>>>>>> 11022e8 (feat: implement contributor and mentor leaderboards)
 async def update_leaderboard_endpoint(req: LeaderboardUpdateRequest):
     pattern = r"(?i)(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)"
     matches = re.findall(pattern, req.pr_description)

@@ -20,6 +20,7 @@ pip-wheel-metadata/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+# Test artifacts (test source files in `tests/` SHOULD be committed)
 htmlcov/
 .coverage
 .coverage.*

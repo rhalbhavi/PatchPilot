@@ -1,0 +1,32 @@
+name: Rebuild Mentor Leaderboard
+
+on:
+  workflow_dispatch: # Allows manual triggering
+  schedule:
+    # Runs every Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # No longer needs to write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx aiosqlite
+
+      - name: Run rebuild script
+        env:
+          # This token is automatically provided by GitHub Actions.
+          # No personal access token (PAT) is needed for this to run.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python backend/scripts/rebuild_mentor_leaderboard.py

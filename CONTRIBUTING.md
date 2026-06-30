@@ -62,6 +62,11 @@ PatchPilot/
 | osv-scanner | latest |
 | gitleaks | latest |
 
+<<<<<<< HEAD
+=======
+> See the main [README.md prerequisites section](README.md#prerequisites) for detailed installation and troubleshooting instructions for the command-line scanners.
+
+>>>>>>> 11022e8 (feat: implement contributor and mentor leaderboards)
 ### Backend
 
 ```bash

@@ -92,6 +92,12 @@ async def init_db():
                 created_at      TEXT DEFAULT (datetime('now'))
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS mentor_stats (
+                github_username TEXT PRIMARY KEY,
+                reviews INTEGER NOT NULL DEFAULT 0
+            )
+        """)
 
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("PRAGMA table_info(findings)")

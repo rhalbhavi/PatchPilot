@@ -42,11 +42,29 @@ Everything runs locally. No data leaves your machine.
 **Backend**
 - Python 3.10+
 - `semgrep`, `osv-scanner`, and `gitleaks` available on `PATH`
+<<<<<<< HEAD
    - **semgrep**: `pip install semgrep`.
    - **osv-scanner**: Download from the latest GitHub release and place it in a directory on your `PATH`.
    - **gitleaks**: Install via `brew install gitleaks` (macOS/Linux) or download from the latest GitHub release.
+=======
+   - **semgrep**: `pip install semgrep`. After installation, verify with `semgrep --version`.
+   - **osv-scanner**: Go to the osv-scanner releases page, download the binary for your OS (e.g., `osv-scanner-linux-amd64`), and move it to a directory in your system's `PATH` (e.g., `/usr/local/bin` on Linux/macOS). Rename it to `osv-scanner`. Verify with `osv-scanner --version`.
+   - **gitleaks**:
+     - **macOS/Linux (Homebrew):** `brew install gitleaks`. Verify with `gitleaks version`.
+     - **Windows (Scoop):** `scoop install gitleaks`. Verify with `gitleaks version`.
+     - **Other systems:** Go to the gitleaks releases page, download the binary for your OS, and place it in a directory on your `PATH`. Verify with `gitleaks version`.
+>>>>>>> 11022e8 (feat: implement contributor and mentor leaderboards)
 
 > **Note:** If the backend starts in "degraded mode," it means it cannot find these scanner executables. Ensure they are installed and their locations are included in your system's `PATH` environment variable.
+
+<details>
+  <summary><strong>Troubleshooting: "degraded mode"</strong></summary>
+  
+  The "degraded mode" warning is shown when the backend cannot find the required scanner tools. To fix this:
+  1. Follow the installation steps above for each missing scanner.
+  2. After installing, open a **new** terminal window and verify each tool is found (e.g., `which semgrep` on Linux/macOS or `where semgrep` on Windows).
+  3. Restart the backend server from the new terminal. The warning should disappear.
+</details>
 
 
 **Frontend**
